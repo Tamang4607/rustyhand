@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="crates/rusty-hand-api/static/logo.png" width="300" alt="RustyHand Logo" />
+  <img src="crates/rusty-hand-api/static/logo.png" width="500" alt="RustyHand Logo" />
 </p>
 
 <h1 align="center">RustyHand</h1>
