@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://rustyhand.sh/docs">Documentation</a> &bull;
-  <a href="https://rustyhand.sh/docs/getting-started">Quick Start</a> &bull;
-  <a href="https://github.com/ginkida/rustyhand">GitHub</a>
+  <a href="https://github.com/ginkida/rustyhand#quick-start">Quick Start</a> &bull;
+  <a href="https://github.com/ginkida/rustyhand#cli-reference">CLI Reference</a> &bull;
+  <a href="https://github.com/ginkida/rustyhand#api-endpoints">API Docs</a>
 </p>
 
 <p align="center">
@@ -73,7 +73,7 @@ The entire system compiles to a **single ~32MB binary**. One install, one comman
 ### One-liner (Linux / macOS / WSL)
 
 ```bash
-curl -fsSL https://rustyhand.sh/install | sh
+curl -fsSL https://raw.githubusercontent.com/ginkida/rustyhand/main/scripts/install.sh | sh
 ```
 
 Environment variables:
@@ -83,7 +83,7 @@ Environment variables:
 ### Windows (PowerShell)
 
 ```powershell
-irm https://rustyhand.sh/install.ps1 | iex
+irm https://raw.githubusercontent.com/ginkida/rustyhand/main/scripts/install.ps1 | iex
 ```
 
 ### From source
@@ -825,9 +825,9 @@ MIT — use it however you want.
 
 ## Links
 
-- [Website & Documentation](https://rustyhand.sh)
-- [Quick Start Guide](https://rustyhand.sh/docs/getting-started)
 - [GitHub](https://github.com/ginkida/rustyhand)
+- [Quick Start](https://github.com/ginkida/rustyhand#quick-start)
+- [API Reference](https://github.com/ginkida/rustyhand#api-endpoints)
 
 ---
 
