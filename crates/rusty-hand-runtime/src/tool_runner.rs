@@ -73,10 +73,7 @@ fn check_taint_net_fetch(url: &str, trusted_hosts: &[String]) -> Option<String> 
             .and_then(|rest| rest.split('/').next())
             .map(|h| h.split(':').next().unwrap_or(h))
         {
-            if trusted_hosts
-                .iter()
-                .any(|t| t.eq_ignore_ascii_case(host))
-            {
+            if trusted_hosts.iter().any(|t| t.eq_ignore_ascii_case(host)) {
                 return None;
             }
         }
@@ -171,8 +168,7 @@ pub async fn execute_tool(
             if filtered.is_empty() {
                 warn!(
                     tool_name,
-                    depth,
-                    "Tool denied: restricted at subagent depth"
+                    depth, "Tool denied: restricted at subagent depth"
                 );
                 return ToolResult {
                     tool_use_id: tool_use_id.to_string(),
@@ -405,7 +401,10 @@ pub async fn execute_tool(
                 let aid = caller_agent_id.unwrap_or("default");
                 crate::browser::tool_browser_snapshot(input, mgr, aid).await
             }
-            None => Err("Browser tools not available. Install agent-browser: npm install -g agent-browser".to_string()),
+            None => Err(
+                "Browser tools not available. Install agent-browser: npm install -g agent-browser"
+                    .to_string(),
+            ),
         },
         "browser_click" => match browser_ctx {
             Some(mgr) => {
@@ -1756,9 +1755,7 @@ async fn tool_doc_search(
 ) -> Result<String, String> {
     let kh = require_kernel(kernel)?;
     let agent_id = caller_agent_id.ok_or("doc_search requires a caller agent ID")?;
-    let query = input["query"]
-        .as_str()
-        .ok_or("Missing 'query' parameter")?;
+    let query = input["query"].as_str().ok_or("Missing 'query' parameter")?;
     let limit = input["limit"].as_u64().unwrap_or(5) as usize;
     let limit = limit.min(20);
 
@@ -1808,10 +1805,7 @@ fn tool_self_evaluate(
     let avg = sum / count as f64;
 
     // Keep last 50 evaluations
-    let mut history = prev["history"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let mut history = prev["history"].as_array().cloned().unwrap_or_default();
     history.push(serde_json::json!({
         "rating": rating,
         "note": note,
@@ -2276,7 +2270,10 @@ fn resolve_schedule_target_agent_id(
         if let Some(agent) = agents.iter().find(|agent| agent.id == hint) {
             return Ok(agent.id.clone());
         }
-        if let Some(agent) = agents.iter().find(|agent| agent.name.eq_ignore_ascii_case(hint)) {
+        if let Some(agent) = agents
+            .iter()
+            .find(|agent| agent.name.eq_ignore_ascii_case(hint))
+        {
             return Ok(agent.id.clone());
         }
 
@@ -2322,8 +2319,7 @@ async fn tool_schedule_create(
     let schedule_str = input["schedule"]
         .as_str()
         .ok_or("Missing 'schedule' parameter")?;
-    let agent_id =
-        resolve_schedule_target_agent_id(kh, input["agent"].as_str(), caller_agent_id)?;
+    let agent_id = resolve_schedule_target_agent_id(kh, input["agent"].as_str(), caller_agent_id)?;
     let cron_expr = parse_schedule_to_cron(schedule_str)?;
 
     let payload = serde_json::json!({
@@ -3893,7 +3889,11 @@ mod tests {
     fn test_chunk_text_splits_with_overlap() {
         let text = "A".repeat(500) + ". " + &"B".repeat(500) + ". " + &"C".repeat(500);
         let chunks = chunk_text(&text, 600, 100);
-        assert!(chunks.len() >= 2, "Should produce multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "Should produce multiple chunks, got {}",
+            chunks.len()
+        );
         // Verify overlap: adjacent chunks share some content
         for pair in chunks.windows(2) {
             // Verify chunks aren't oversized

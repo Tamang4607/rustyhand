@@ -1,33 +1,32 @@
 <p align="center">
-  <img src="crates/rusty-hand-api/static/logo.svg" width="160" alt="RustyHand Logo" />
+  <img src="crates/rusty-hand-api/static/logo.png" width="300" alt="RustyHand Logo" />
 </p>
 
 <h1 align="center">RustyHand</h1>
 <h3 align="center">The Agent Operating System</h3>
 
 <p align="center">
-  Open-source Agent OS built in Rust. 132K LOC. 10 crates. 1,500+ tests. Zero clippy warnings.<br/>
+  Open-source Agent OS built in Rust. 134K LOC. 10 crates. 3,000+ tests. Zero clippy warnings.<br/>
   <strong>One binary. Battle-tested. Agents that actually work for you.</strong>
 </p>
 
 <p align="center">
   <a href="https://rustyhand.sh/docs">Documentation</a> &bull;
   <a href="https://rustyhand.sh/docs/getting-started">Quick Start</a> &bull;
-  <a href="https://discord.gg/sSJqgNnq6X">Discord</a> &bull;
-  <a href="https://x.com/rustyhandg">Twitter / X</a>
+  <a href="https://github.com/ginkida/rustyhand">GitHub</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/language-Rust-orange?style=flat-square" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" />
   <img src="https://img.shields.io/badge/version-0.1.0-green?style=flat-square" alt="v0.1.0" />
-  <img src="https://img.shields.io/badge/tests-1,500%2B%20passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-3,000%2B%20passing-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/clippy-0%20warnings-brightgreen?style=flat-square" alt="Clippy" />
 </p>
 
 ---
 
-> **v0.1.0 — First Release (February 2026)**
+> **v0.1.0 — First Public Release (April 2026)**
 >
 > RustyHand is feature-complete but this is the first public release. You may encounter rough edges or breaking changes between minor versions. Pin to a specific commit for production use until v1.0. [Report issues here.](https://github.com/ginkida/rustyhand/issues)
 
@@ -45,9 +44,9 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 - [Configuration](#configuration)
 - [CLI Reference](#cli-reference)
 - [Autonomous Templates](#autonomous-templates)
-- [30 Pre-built Agent Templates](#30-pre-built-agent-templates)
+- [37 Pre-built Agent Templates](#37-pre-built-agent-templates)
 - [37 Channel Adapters](#37-channel-adapters)
-- [27 LLM Providers — 130+ Models](#27-llm-providers--130-models)
+- [26 LLM Providers — 130+ Models](#27-llm-providers--130-models)
 - [Architecture](#architecture)
 - [API Endpoints](#api-endpoints)
 - [Dashboard](#dashboard)
@@ -374,19 +373,23 @@ Use the dashboard to launch one: **Agents → Templates** or **Create Agent → 
 
 ---
 
-## 30 Pre-built Agent Templates
+## 37 Pre-built Agent Templates
 
 Spawn any template with `rustyhand agent new <name>`:
 
 | Template | Description |
 |----------|-------------|
 | `analyst` | Data analysis and reporting |
+| `api-monitor` | API endpoint monitoring |
 | `architect` | System design and architecture |
 | `assistant` | General-purpose assistant |
+| `ci-monitor` | CI/CD pipeline monitoring |
 | `code-reviewer` | Code review and feedback |
 | `coder` | Software development |
 | `customer-support` | Customer support |
+| `dag-monitor` | DAG/workflow monitoring |
 | `data-scientist` | Data science and ML |
+| `db-reporter` | Database reporting |
 | `debugger` | Bug investigation |
 | `devops-lead` | DevOps and infrastructure |
 | `doc-writer` | Documentation |
@@ -395,6 +398,7 @@ Spawn any template with `rustyhand agent new <name>`:
 | `hello-world` | Starter agent for new users |
 | `home-automation` | Smart home control |
 | `legal-assistant` | Legal document review |
+| `log-analyzer` | Log analysis and alerting |
 | `meeting-assistant` | Meeting notes and follow-ups |
 | `ops` | Operations management |
 | `orchestrator` | Multi-agent orchestration |
@@ -404,11 +408,13 @@ Spawn any template with `rustyhand agent new <name>`:
 | `researcher` | Research and analysis |
 | `sales-assistant` | Sales support |
 | `security-auditor` | Security analysis |
+| `slack-notifier` | Slack notification automation |
 | `social-media` | Social media management |
 | `test-engineer` | Testing and QA |
 | `translator` | Multi-language translation |
 | `travel-planner` | Travel planning |
 | `tutor` | Education and tutoring |
+| `weekly-digest` | Weekly summary reports |
 | `writer` | Content writing |
 
 ### Agent manifest format (`agent.toml`)
@@ -466,7 +472,7 @@ output_format = "TelegramHtml"         # Markdown | TelegramHtml | SlackMrkdwn |
 
 ---
 
-## 27 LLM Providers — 130+ Models
+## 26 LLM Providers — 130+ Models
 
 3 native drivers (Anthropic, Gemini, OpenAI-compatible) route to 27 providers:
 
@@ -504,7 +510,7 @@ rusty-hand-types       Core types, traits, config, taint tracking, Ed25519 manif
     |
     +-- rusty-hand-kernel      Orchestration: lifecycle, scheduling, metering, RBAC, workflows
     |
-    +-- rusty-hand-api         Axum HTTP daemon, 108+ endpoints, WebSocket, SSE, OpenAI-compat
+    +-- rusty-hand-api         Axum HTTP daemon, 120+ endpoints, WebSocket, SSE, OpenAI-compat
     |
     +-- rusty-hand-cli         CLI binary + TUI dashboard (ratatui)
 ```
@@ -514,7 +520,7 @@ rusty-hand-types       Core types, traits, config, taint tracking, Ed25519 manif
 | Concept | Implementation |
 |---------|---------------|
 | **Agent loop** | `rusty-hand-runtime` — iterative LLM call → tool execution → response cycle |
-| **Kernel** | `RustyHandKernel` struct (130+ fields) — central orchestration for all subsystems |
+| **Kernel** | `RustyHandKernel` struct (40+ fields) — central orchestration for all subsystems |
 | **AppState** | Bridges kernel to HTTP routes via `Arc<RustyHandKernel>` in Axum state |
 | **Sandbox** | WASM (wasmtime) with fuel metering + epoch interruption + watchdog thread |
 | **Memory** | SQLite + vector embeddings for semantic search + knowledge graph |
@@ -584,7 +590,7 @@ curl -X POST http://localhost:4200/v1/chat/completions \
   }'
 ```
 
-Full REST/WS/SSE endpoints cover agents, memory, workflows, channels, models, skills, sessions, approvals, triggers, crons, security, and more (140+ total).
+Full REST/WS/SSE endpoints cover agents, memory, workflows, channels, models, skills, sessions, approvals, triggers, crons, security, and more (120+ total).
 
 ---
 
@@ -697,7 +703,7 @@ cross build --release --target aarch64-unknown-linux-gnu -p rusty-hand-cli
 # Compile all crates (use --lib if the daemon binary is locked)
 cargo build --workspace --lib
 
-# Run all tests (1,500+)
+# Run all tests (3,000+)
 cargo test --workspace
 
 # Lint — must be 0 warnings
@@ -726,7 +732,7 @@ rustyhand/
   Dockerfile                # Multi-stage build
   docker-compose.yml
   Cross.toml                # Cross-compilation config
-  agents/                   # 30 pre-built agent templates (agent.toml each)
+  agents/                   # 37 pre-built agent templates (agent.toml each)
   deploy/                   # systemd service, Docker scripts
   scripts/                  # install.sh, install.ps1
   crates/
@@ -737,11 +743,11 @@ rustyhand/
     rusty-hand-api/         # Axum HTTP server + routes + dashboard
       src/
         server.rs           # Router setup, middleware, AppState
-        routes.rs           # All API endpoint handlers (~8500 LOC)
+        routes.rs           # All API endpoint handlers (~7600 LOC)
       static/
         index_body.html     # Dashboard SPA (Alpine.js)
         index_head.html     # CSS + fonts
-    rusty-hand-kernel/      # Central kernel (~5000 LOC, 130+ fields)
+    rusty-hand-kernel/      # Central kernel (~5300 LOC, 40+ fields)
     rusty-hand-cli/         # CLI + TUI binary
     rusty-hand-channels/    # 37 messaging adapters
     rusty-hand-skills/      # Skill system + ClawHub + OpenClaw compat
@@ -752,8 +758,8 @@ rustyhand/
 
 | File | What it does |
 |------|-------------|
-| `crates/rusty-hand-kernel/src/kernel.rs` | The kernel — 130+ fields, central orchestration |
-| `crates/rusty-hand-api/src/routes.rs` | All API handlers (~8500 LOC) |
+| `crates/rusty-hand-kernel/src/kernel.rs` | The kernel — 40+ fields, central orchestration |
+| `crates/rusty-hand-api/src/routes.rs` | All API handlers (~7600 LOC) |
 | `crates/rusty-hand-api/src/server.rs` | Router, middleware, `AppState` struct |
 | `crates/rusty-hand-types/src/config.rs` | Master config struct (`KernelConfig`) |
 | `crates/rusty-hand-api/static/index_body.html` | Dashboard SPA |
@@ -773,7 +779,7 @@ rustyhand/
 
 ## Benchmarks
 
-All data from official documentation and public repositories — February 2026.
+All data from official documentation and public repositories — April 2026.
 
 | Metric | RustyHand | ZeroClaw | LangGraph | CrewAI | AutoGen | OpenClaw |
 |--------|----------|----------|-----------|--------|---------|----------|
@@ -798,8 +804,6 @@ MIT — use it however you want.
 - [Website & Documentation](https://rustyhand.sh)
 - [Quick Start Guide](https://rustyhand.sh/docs/getting-started)
 - [GitHub](https://github.com/ginkida/rustyhand)
-- [Discord](https://discord.gg/sSJqgNnq6X)
-- [Twitter / X](https://x.com/rustyhandg)
 
 ---
 

@@ -265,8 +265,7 @@ impl ClawHubClient {
                 .await
                 .map_err(|e| SkillError::Network(format!("Request failed: {e}")))?;
 
-            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS
-                || attempt == max_retries
+            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS || attempt == max_retries
             {
                 return Ok(response);
             }
@@ -622,8 +621,10 @@ fn extract_zip(data: &[u8], target_dir: &Path) -> Result<(), SkillError> {
                 use std::os::unix::fs::PermissionsExt;
                 if let Some(ext) = out_path.extension().and_then(|e| e.to_str()) {
                     if matches!(ext, "py" | "sh" | "js") {
-                        let _ =
-                            std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(0o755));
+                        let _ = std::fs::set_permissions(
+                            &out_path,
+                            std::fs::Permissions::from_mode(0o755),
+                        );
                     }
                 }
             }

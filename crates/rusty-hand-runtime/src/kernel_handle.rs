@@ -186,11 +186,7 @@ pub trait KernelHandle: Send + Sync {
 
     /// Get the agent's conversation history from its current session.
     /// Returns last N messages as JSON array [{role, content}].
-    fn agent_history(
-        &self,
-        agent_id: &str,
-        last_n: usize,
-    ) -> Result<serde_json::Value, String> {
+    fn agent_history(&self, agent_id: &str, last_n: usize) -> Result<serde_json::Value, String> {
         let _ = (agent_id, last_n);
         Err("History not available".to_string())
     }
@@ -202,11 +198,7 @@ pub trait KernelHandle: Send + Sync {
     }
 
     /// Update an agent's system prompt at runtime (hot-swap, takes effect on next message).
-    fn update_agent_system_prompt(
-        &self,
-        agent_id: &str,
-        new_prompt: &str,
-    ) -> Result<(), String> {
+    fn update_agent_system_prompt(&self, agent_id: &str, new_prompt: &str) -> Result<(), String> {
         let _ = (agent_id, new_prompt);
         Err("Self-update not available".to_string())
     }

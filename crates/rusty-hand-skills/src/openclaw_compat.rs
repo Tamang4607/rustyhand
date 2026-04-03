@@ -737,7 +737,9 @@ Config lives in ~/.codex/config.toml
             "skill paths should point to rustyhand"
         );
         assert!(
-            converted.prompt_context.contains("~/.rustyhand/config.toml"),
+            converted
+                .prompt_context
+                .contains("~/.rustyhand/config.toml"),
             "general codex paths should also be rewritten"
         );
     }

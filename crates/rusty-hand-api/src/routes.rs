@@ -153,11 +153,8 @@ pub async fn list_agents(State(state): State<Arc<AppState>>) -> impl IntoRespons
                             while let Some(start) = text.find("<think>") {
                                 if let Some(end) = text.find("</think>") {
                                     let after = end + "</think>".len();
-                                    text = format!(
-                                        "{}{}",
-                                        &text[..start],
-                                        text[after..].trim_start()
-                                    );
+                                    text =
+                                        format!("{}{}", &text[..start], text[after..].trim_start());
                                 } else {
                                     // Unclosed <think> — strip to end
                                     text = text[..start].to_string();
@@ -6587,10 +6584,7 @@ pub async fn create_approval(
     let kernel = Arc::clone(&state.kernel);
     let req_id = id;
     tokio::spawn(async move {
-        let decision = kernel
-            .approval_manager
-            .request_approval(approval_req)
-            .await;
+        let decision = kernel.approval_manager.request_approval(approval_req).await;
         tracing::info!(
             request_id = %req_id,
             ?decision,
@@ -7164,18 +7158,17 @@ pub async fn run_cron_job(
                         "event_type": event_type,
                     })),
                 ),
-                Ok(rusty_hand_kernel::kernel::CronRunOutcome::AgentTurn {
-                    agent_id,
-                    response,
-                }) => (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "status": "completed",
-                        "job_id": id,
-                        "agent_id": agent_id.to_string(),
-                        "response": response,
-                    })),
-                ),
+                Ok(rusty_hand_kernel::kernel::CronRunOutcome::AgentTurn { agent_id, response }) => {
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "status": "completed",
+                            "job_id": id,
+                            "agent_id": agent_id.to_string(),
+                            "response": response,
+                        })),
+                    )
+                }
                 Err(error) => (
                     if error.timed_out {
                         StatusCode::GATEWAY_TIMEOUT

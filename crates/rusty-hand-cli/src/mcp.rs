@@ -992,8 +992,7 @@ impl McpBackend {
                 Self::daemon_get(client, base_url, "/api/config")
             }
             McpBackend::InProcess { kernel, .. } => {
-                serde_json::to_value(&kernel.config)
-                    .map_err(|e| format!("Serialize error: {e}"))
+                serde_json::to_value(&kernel.config).map_err(|e| format!("Serialize error: {e}"))
             }
         }
     }
@@ -1079,8 +1078,7 @@ impl McpBackend {
                 Some(&json!({})),
             ),
             McpBackend::InProcess { kernel, .. } => {
-                let aid: uuid::Uuid =
-                    approval_id.parse().map_err(|_| "Invalid approval ID")?;
+                let aid: uuid::Uuid = approval_id.parse().map_err(|_| "Invalid approval ID")?;
                 kernel
                     .approval_manager
                     .resolve(
@@ -1103,8 +1101,7 @@ impl McpBackend {
                 Some(&json!({})),
             ),
             McpBackend::InProcess { kernel, .. } => {
-                let aid: uuid::Uuid =
-                    approval_id.parse().map_err(|_| "Invalid approval ID")?;
+                let aid: uuid::Uuid = approval_id.parse().map_err(|_| "Invalid approval ID")?;
                 kernel
                     .approval_manager
                     .resolve(

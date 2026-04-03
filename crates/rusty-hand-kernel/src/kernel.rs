@@ -4313,9 +4313,7 @@ async fn cron_send_to_channel(
                 .as_ref()
                 .and_then(|d| std::env::var(&d.bot_token_env).ok());
             if let Some(token) = token {
-                let url = format!(
-                    "https://discord.com/api/v10/channels/{recipient}/messages"
-                );
+                let url = format!("https://discord.com/api/v10/channels/{recipient}/messages");
                 let payload = serde_json::json!({ "content": message });
                 let _ = client
                     .post(&url)
@@ -4552,18 +4550,11 @@ impl KernelHandle for RustyHandKernel {
         Ok(json_results)
     }
 
-    fn agent_history(
-        &self,
-        agent_id: &str,
-        last_n: usize,
-    ) -> Result<serde_json::Value, String> {
+    fn agent_history(&self, agent_id: &str, last_n: usize) -> Result<serde_json::Value, String> {
         let id: AgentId = agent_id
             .parse()
             .map_err(|_| "Invalid agent ID".to_string())?;
-        let agent = self
-            .registry
-            .get(id)
-            .ok_or("Agent not found".to_string())?;
+        let agent = self.registry.get(id).ok_or("Agent not found".to_string())?;
         let session = self
             .memory
             .get_session(agent.session_id)
@@ -4612,10 +4603,7 @@ impl KernelHandle for RustyHandKernel {
             .map_err(|e| format!("Metrics query failed: {e}"))?;
 
         // Scheduler usage (hourly rolling window)
-        let (hourly_tokens, hourly_tool_calls) = self
-            .scheduler
-            .get_usage(id)
-            .unwrap_or((0, 0));
+        let (hourly_tokens, hourly_tool_calls) = self.scheduler.get_usage(id).unwrap_or((0, 0));
 
         // Agent uptime from created_at
         let agent = self.registry.get(id);
@@ -4641,11 +4629,7 @@ impl KernelHandle for RustyHandKernel {
         }))
     }
 
-    fn update_agent_system_prompt(
-        &self,
-        agent_id: &str,
-        new_prompt: &str,
-    ) -> Result<(), String> {
+    fn update_agent_system_prompt(&self, agent_id: &str, new_prompt: &str) -> Result<(), String> {
         let id: AgentId = agent_id
             .parse()
             .map_err(|_| "Invalid agent ID".to_string())?;

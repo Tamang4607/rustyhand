@@ -92,7 +92,9 @@ impl BrowserManager {
         debug!(agent_id, args = ?args, "Running agent-browser command");
 
         let output = cmd.output().await.map_err(|e| {
-            format!("Failed to run agent-browser: {e}. Install it with: npm install -g agent-browser")
+            format!(
+                "Failed to run agent-browser: {e}. Install it with: npm install -g agent-browser"
+            )
         })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -108,9 +110,7 @@ impl BrowserManager {
 
         // agent-browser --json always returns JSON on stdout
         let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            format!(
-                "Failed to parse agent-browser output: {e}\nstdout: {stdout}\nstderr: {stderr}"
-            )
+            format!("Failed to parse agent-browser output: {e}\nstdout: {stdout}\nstderr: {stderr}")
         })?;
 
         // Check for error in the JSON response
@@ -130,7 +130,9 @@ impl BrowserManager {
             let result = self.run_command_raw(agent_id, &["close"]).await;
             match result {
                 Ok(_) => info!(agent_id, "Browser session closed"),
-                Err(e) => debug!(agent_id, error = %e, "Browser session close (may already be closed)"),
+                Err(e) => {
+                    debug!(agent_id, error = %e, "Browser session close (may already be closed)")
+                }
             }
         }
     }
@@ -141,11 +143,7 @@ impl BrowserManager {
     }
 
     /// Run a command without session limit checking (for close/cleanup).
-    async fn run_command_raw(
-        &self,
-        agent_id: &str,
-        args: &[&str],
-    ) -> Result<(), String> {
+    async fn run_command_raw(&self, agent_id: &str, args: &[&str]) -> Result<(), String> {
         let mut cmd = tokio::process::Command::new(&self.config.executable);
         cmd.arg("--session").arg(agent_id);
         cmd.args(args);
@@ -307,9 +305,7 @@ pub async fn tool_browser_type(
     let text = input["text"].as_str().ok_or("Missing 'text' parameter")?;
 
     // agent-browser uses "fill" for clear+type
-    let resp = mgr
-        .run_command(agent_id, &["fill", selector, text])
-        .await?;
+    let resp = mgr.run_command(agent_id, &["fill", selector, text]).await?;
 
     let _ = resp;
     Ok(format!("Typed into {selector}: {text}"))
@@ -391,9 +387,7 @@ pub async fn tool_browser_read_page(
         .unwrap_or("");
 
     // Get the interactive snapshot (better for AI than raw HTML)
-    let snapshot_resp = mgr
-        .run_command(agent_id, &["snapshot", "-i", "-c"])
-        .await?;
+    let snapshot_resp = mgr.run_command(agent_id, &["snapshot", "-i", "-c"]).await?;
 
     let content = snapshot_resp["data"]["snapshot"]
         .as_str()

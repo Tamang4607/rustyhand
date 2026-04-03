@@ -12,8 +12,8 @@ use rusty_hand_kernel::RustyHandKernel;
 use rusty_hand_runtime::llm_driver::StreamEvent;
 use rusty_hand_types::agent::AgentId;
 use screens::{
-    agents, audit, channels, chat, dashboard, extensions, logs, memory, peers, security,
-    sessions, settings, skills, templates, triggers, usage, welcome, wizard, workflows,
+    agents, audit, channels, chat, dashboard, extensions, logs, memory, peers, security, sessions,
+    settings, skills, templates, triggers, usage, welcome, wizard, workflows,
 };
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};

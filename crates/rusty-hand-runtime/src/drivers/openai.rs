@@ -379,7 +379,9 @@ impl LlmDriver for OpenAIDriver {
             // Handle reasoning_content field (DeepSeek R1, QwQ, etc.)
             if let Some(reasoning) = choice.message.reasoning_content {
                 if !reasoning.is_empty() {
-                    content.push(ContentBlock::Thinking { thinking: reasoning });
+                    content.push(ContentBlock::Thinking {
+                        thinking: reasoning,
+                    });
                 }
             }
 
@@ -659,7 +661,7 @@ impl LlmDriver for OpenAIDriver {
             let mut text_content = String::new();
             let mut thinking_content = String::new();
             let mut in_thinking = false; // tracks <think> tag state for streaming
-            // Track tool calls: index -> (id, name, arguments)
+                                         // Track tool calls: index -> (id, name, arguments)
             let mut tool_accum: Vec<(String, String, String)> = Vec::new();
             let mut finish_reason: Option<String> = None;
             let mut usage = TokenUsage::default();
@@ -1076,8 +1078,7 @@ mod tests {
 
     #[test]
     fn test_extract_think_tags_multiple() {
-        let (visible, thinking) =
-            extract_think_tags("<think>First</think>A<think>Second</think>B");
+        let (visible, thinking) = extract_think_tags("<think>First</think>A<think>Second</think>B");
         assert_eq!(thinking, "FirstSecond");
         assert_eq!(visible, "AB");
     }
@@ -1149,7 +1150,10 @@ mod tests {
         // Think tags should be extracted, leaving only whitespace
         let (visible, thinking) = extract_think_tags(text);
         assert_eq!(thinking, "The user wants weather data.");
-        assert!(visible.trim().is_empty(), "Visible should be empty after trim, got: '{visible}'");
+        assert!(
+            visible.trim().is_empty(),
+            "Visible should be empty after trim, got: '{visible}'"
+        );
 
         // Tool calls should parse correctly alongside thinking
         let tool_calls = choice.message.tool_calls.as_ref().unwrap();
