@@ -46,7 +46,7 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 - [Autonomous Templates](#autonomous-templates)
 - [37 Pre-built Agent Templates](#37-pre-built-agent-templates)
 - [37 Channel Adapters](#37-channel-adapters)
-- [26 LLM Providers — 130+ Models](#27-llm-providers--130-models)
+- [26 LLM Providers — 130+ Models](#26-llm-providers--130-models)
 - [Architecture](#architecture)
 - [API Endpoints](#api-endpoints)
 - [Dashboard](#dashboard)
@@ -54,6 +54,8 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 - [Deployment](#deployment)
 - [Development](#development)
 - [Benchmarks](#benchmarks)
+- [Programmatic Usage](#programmatic-usage)
+- [How It Works — Data Flow](#how-it-works--data-flow)
 - [License](#license)
 
 ---
@@ -812,8 +814,194 @@ All data from official documentation and public repositories — April 2026.
 | **Install size** | 32 MB | 8.8 MB | 150 MB | 100 MB | 200 MB | 500 MB |
 | **Security layers** | 16 | 6 | 2 | 1 | 2 | 3 |
 | **Channel adapters** | 37 | 15 | 0 | 0 | 0 | 13 |
-| **LLM providers** | 27 | 28 | 15 | 10 | 8 | 10 |
+| **LLM providers** | 26 | 28 | 15 | 10 | 8 | 10 |
 | **Language** | Rust | Rust | Python | Python | Python | TypeScript |
+
+---
+
+## Programmatic Usage
+
+### Python SDK
+
+```bash
+pip install rustyhand
+```
+
+```python
+from rustyhand_client import RustyHandClient
+
+client = RustyHandClient("http://localhost:4200")
+
+# List agents
+agents = client.list_agents()
+
+# Send a message and get a response
+response = client.send_message(agent_id, "Summarize today's logs")
+print(response["response"])
+
+# Spawn an agent from TOML manifest
+agent = client.spawn_agent(open("agents/coder/agent.toml").read())
+
+# Stream a response
+for chunk in client.send_message_stream(agent_id, "Write a REST API in Python"):
+    print(chunk, end="", flush=True)
+```
+
+### JavaScript / TypeScript SDK
+
+```bash
+npm install rustyhand
+```
+
+```javascript
+import { RustyHandClient } from 'rustyhand';
+
+const client = new RustyHandClient('http://localhost:4200');
+
+// List agents
+const agents = await client.listAgents();
+
+// Send a message
+const result = await client.sendMessage(agentId, 'Analyze this CSV data');
+
+// Stream a response
+for await (const chunk of client.streamMessage(agentId, 'Write unit tests')) {
+  process.stdout.write(chunk);
+}
+```
+
+### curl (REST API)
+
+```bash
+# Health check
+curl http://localhost:4200/api/health
+
+# List agents
+curl http://localhost:4200/api/agents
+
+# Spawn an agent
+curl -X POST http://localhost:4200/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"manifest_toml": "name = \"my-agent\"\nmodule = \"builtin:chat\"\n[model]\nprovider = \"groq\"\nmodel = \"llama-3.3-70b-versatile\"\napi_key_env = \"GROQ_API_KEY\"\nsystem_prompt = \"You are a helpful assistant.\""}'
+
+# Send a message (returns full response)
+curl -X POST http://localhost:4200/api/agents/{id}/message \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello, what can you do?"}'
+
+# Stream a response (SSE)
+curl -X POST http://localhost:4200/api/agents/{id}/message/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Write a haiku about Rust"}'
+
+# OpenAI-compatible endpoint (drop-in replacement)
+curl -X POST http://localhost:4200/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "coder", "messages": [{"role": "user", "content": "Fix this bug"}]}'
+
+# Budget status
+curl http://localhost:4200/api/budget
+
+# Memory — store and recall
+curl -X PUT http://localhost:4200/api/memory/agents/{id}/kv/project_name \
+  -H "Content-Type: application/json" \
+  -d '{"value": "rustyhand"}'
+curl http://localhost:4200/api/memory/agents/{id}/kv/project_name
+```
+
+### MCP Server Mode
+
+RustyHand can act as an MCP server, exposing all agents as tools to any MCP-compatible client (Claude Desktop, Cursor, etc.):
+
+```bash
+rustyhand mcp  # Starts MCP server over stdio
+```
+
+---
+
+## How It Works — Data Flow
+
+```
+User message (CLI / API / Telegram / Discord / ...)
+    |
+    v
+[Channel Adapter] --- converts platform message to unified ChannelMessage
+    |
+    v
+[Kernel Router] --- resolves target agent via bindings/broadcast rules
+    |
+    v
+[Agent Registry] --- looks up AgentManifest + Session
+    |
+    v
+[Agent Loop] (rusty-hand-runtime/src/agent_loop.rs)
+    |
+    +-- 1. Recall memories (vector similarity via Voyage/OpenAI/Ollama, or text LIKE)
+    +-- 2. Build system prompt (SOUL.md + USER.md + TOOLS.md + MEMORY.md + recalled context)
+    +-- 3. Call LLM (driver: Anthropic / Gemini / OpenAI-compat)
+    |       |-- retry on rate limit (3x, exponential backoff)
+    |       |-- fallback to next provider on failure
+    |       |-- model routing by complexity (simple/medium/complex)
+    +-- 4. If tool_use → execute tool → append result → goto 3 (max 50 iterations)
+    |       |-- built-in: file_read, file_write, shell_exec, web_search, web_fetch,
+    |       |             memory_store, memory_recall, agent_send, agent_spawn, browser_*
+    |       |-- MCP tools: GitHub, Notion, Slack, PostgreSQL, ... (25+ integrations)
+    |       |-- skills: 60 prompt-only + Python/WASM/Node.js executable skills
+    +-- 5. Extract response text + reply directives
+    |
+    v
+[Metering] --- record token usage + cost, check budget limits
+    |
+    v
+[Session Save] --- persist messages to SQLite, append daily memory log
+    |
+    v
+[Channel Adapter] --- format response for platform, send back
+    |
+    v
+User receives response
+```
+
+### Key Types
+
+| Type | File | Purpose |
+|------|------|---------|
+| `KernelConfig` | `crates/rusty-hand-types/src/config.rs` | Master config (50+ fields, all with `#[serde(default)]`) |
+| `AgentManifest` | `crates/rusty-hand-types/src/agent.rs` | Agent definition (model, tools, capabilities, resources) |
+| `RustyHandKernel` | `crates/rusty-hand-kernel/src/kernel.rs` | Central orchestrator (40+ subsystem fields) |
+| `LlmDriver` | `crates/rusty-hand-runtime/src/llm_driver.rs` | Trait: `complete()` + `complete_stream()` |
+| `KernelHandle` | `crates/rusty-hand-runtime/src/kernel_handle.rs` | Trait: inter-agent ops (spawn, send, kill, memory, tasks) |
+| `AppState` | `crates/rusty-hand-api/src/routes.rs` | Axum state: `Arc<RustyHandKernel>` + bridge manager |
+| `AgentLoopResult` | `crates/rusty-hand-runtime/src/agent_loop.rs` | Result: `.response`, `.total_usage`, `.cost_usd`, `.silent` |
+| `MemorySubstrate` | `crates/rusty-hand-memory/src/substrate.rs` | Unified memory API (structured + semantic + knowledge graph) |
+| `Event` | `crates/rusty-hand-types/src/event.rs` | Event bus payload (Message, ToolResult, Lifecycle, System) |
+| `ToolDefinition` | `crates/rusty-hand-types/src/tool.rs` | Tool schema for LLM (name, description, JSON Schema input) |
+
+### Extending RustyHand
+
+**Add a new LLM provider:**
+1. Add base URL constant to `crates/rusty-hand-types/src/model_catalog.rs`
+2. Add match arm to `crates/rusty-hand-runtime/src/drivers/mod.rs` `provider_defaults()`
+3. Most providers use the OpenAI-compatible driver — no new driver code needed
+
+**Add a new API endpoint:**
+1. Add handler function in `crates/rusty-hand-api/src/routes.rs`
+2. Register route in `crates/rusty-hand-api/src/server.rs` `build_router()`
+3. Add request/response types in `crates/rusty-hand-api/src/types.rs` if needed
+
+**Add a new config field:**
+1. Add field with `#[serde(default)]` to struct in `crates/rusty-hand-types/src/config.rs`
+2. Add default value to the `Default` impl
+3. Add to custom `Debug` impl (redact secrets)
+
+**Add a new built-in tool:**
+1. Add `ToolDefinition` to `builtin_tool_definitions()` in `crates/rusty-hand-runtime/src/tool_runner.rs`
+2. Add execution handler in the same file's `execute_tool()` match
+
+**Add a new channel adapter:**
+1. Create `crates/rusty-hand-channels/src/<name>.rs`
+2. Add `pub mod <name>` to `crates/rusty-hand-channels/src/lib.rs`
+3. Wire into `crates/rusty-hand-api/src/channel_bridge.rs`
 
 ---
 
@@ -828,6 +1016,8 @@ MIT — use it however you want.
 - [GitHub](https://github.com/ginkida/rustyhand)
 - [Quick Start](https://github.com/ginkida/rustyhand#quick-start)
 - [API Reference](https://github.com/ginkida/rustyhand#api-endpoints)
+- [Python SDK](https://github.com/ginkida/rustyhand/tree/main/sdk/python)
+- [JavaScript SDK](https://github.com/ginkida/rustyhand/tree/main/sdk/javascript)
 
 ---
 
