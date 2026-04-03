@@ -474,9 +474,9 @@ output_format = "TelegramHtml"         # Markdown | TelegramHtml | SlackMrkdwn |
 
 ## 26 LLM Providers — 130+ Models
 
-3 native drivers (Anthropic, Gemini, OpenAI-compatible) route to 27 providers:
+3 native drivers (Anthropic, Gemini, OpenAI-compatible) route to 26 providers:
 
-**Cloud:** Anthropic, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, MiniMax, Zhipu, Moonshot, Qianfan, Bedrock, Copilot
+**Cloud:** Anthropic, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, MiniMax, Zhipu, Moonshot, Qianfan, Copilot
 **Local:** Ollama, vLLM, LM Studio
 
 Features:
@@ -484,6 +484,30 @@ Features:
 - Automatic fallback between providers
 - Per-model pricing and cost tracking
 - Per-agent budget limits
+
+### Embedding providers
+
+Vector embeddings power semantic memory recall. Auto-detected at boot (first available wins):
+
+| Provider | Models | Key required |
+|----------|--------|-------------|
+| **Voyage AI** | voyage-3, voyage-3-lite, voyage-code-3, voyage-finance-2, voyage-law-2, voyage-multilingual-2 | `VOYAGE_API_KEY` |
+| **OpenAI** | text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002 | `OPENAI_API_KEY` |
+| **Ollama** | nomic-embed-text, all-MiniLM-L6-v2, mxbai-embed-large | No |
+| **Together** | any embedding model | `TOGETHER_API_KEY` |
+| **Fireworks** | any embedding model | `FIREWORKS_API_KEY` |
+| **Mistral** | any embedding model | `MISTRAL_API_KEY` |
+| **vLLM / LM Studio** | any local model | No |
+
+Configure explicitly in `config.toml`:
+
+```toml
+[memory]
+embedding_provider = "voyage"              # or "openai", "ollama", etc.
+embedding_api_key_env = "VOYAGE_API_KEY"
+```
+
+Or let RustyHand auto-detect: it probes Voyage → OpenAI → Ollama at boot and uses the first available provider. Falls back to text search (SQLite LIKE) when no embedding driver is found.
 
 ```bash
 rustyhand models list                 # Browse all models
@@ -500,7 +524,7 @@ rustyhand models set claude-sonnet    # Set default model
 ```
 rusty-hand-types       Core types, traits, config, taint tracking, Ed25519 manifest signing
     |
-    +-- rusty-hand-memory      SQLite persistence, vector embeddings, session compaction
+    +-- rusty-hand-memory      SQLite persistence, vector embeddings (Voyage/OpenAI/Ollama), session compaction
     +-- rusty-hand-wire        RHP P2P protocol (JSON-RPC over TCP, HMAC-SHA256 auth)
     +-- rusty-hand-channels    37 messaging adapters with rate limiting
     +-- rusty-hand-skills      Skill system + ClawHub marketplace
@@ -523,7 +547,7 @@ rusty-hand-types       Core types, traits, config, taint tracking, Ed25519 manif
 | **Kernel** | `RustyHandKernel` struct (40+ fields) — central orchestration for all subsystems |
 | **AppState** | Bridges kernel to HTTP routes via `Arc<RustyHandKernel>` in Axum state |
 | **Sandbox** | WASM (wasmtime) with fuel metering + epoch interruption + watchdog thread |
-| **Memory** | SQLite + vector embeddings for semantic search + knowledge graph |
+| **Memory** | SQLite + vector embeddings (Voyage AI, OpenAI, Ollama) for semantic search + knowledge graph |
 | **Metering** | Per-agent token/cost tracking with budget enforcement and alerts |
 | **P2P** | RHP (RustyHand Protocol) — JSON-RPC over TCP, Ed25519 identity, nonce-based auth |
 | **A2A** | Agent-to-Agent protocol for cross-instance agent communication |
@@ -737,7 +761,7 @@ rustyhand/
   scripts/                  # install.sh, install.ps1
   crates/
     rusty-hand-types/       # Core types (config.rs is the master config struct)
-    rusty-hand-memory/      # SQLite + vector embeddings
+    rusty-hand-memory/      # SQLite + vector embeddings (Voyage AI, OpenAI, Ollama)
     rusty-hand-runtime/     # Agent loop + LLM drivers + tools + sandbox
     rusty-hand-wire/        # RHP P2P protocol
     rusty-hand-api/         # Axum HTTP server + routes + dashboard
