@@ -54,7 +54,7 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 - [Deployment](#deployment)
 - [Development](#development)
 - [Benchmarks](#benchmarks)
-- [Programmatic Usage](#programmatic-usage)
+- [MCP Integration (for AI Agents)](#mcp-integration-for-ai-agents)
 - [How It Works — Data Flow](#how-it-works--data-flow)
 - [License](#license)
 
@@ -819,58 +819,95 @@ All data from official documentation and public repositories — April 2026.
 
 ---
 
-## Programmatic Usage
+## MCP Integration (for AI Agents)
 
-### Python SDK
+RustyHand exposes itself as an **MCP server** over stdio, giving any MCP-compatible AI agent (Claude Desktop, Cursor, Windsurf, Claude Code, etc.) full control over the agent OS.
 
-```bash
-pip install rustyhand
-```
+### Setup
 
-```python
-from rustyhand_client import RustyHandClient
+Add to your MCP client config (e.g. `claude_desktop_config.json`):
 
-client = RustyHandClient("http://localhost:4200")
-
-# List agents
-agents = client.list_agents()
-
-# Send a message and get a response
-response = client.send_message(agent_id, "Summarize today's logs")
-print(response["response"])
-
-# Spawn an agent from TOML manifest
-agent = client.spawn_agent(open("agents/coder/agent.toml").read())
-
-# Stream a response
-for chunk in client.send_message_stream(agent_id, "Write a REST API in Python"):
-    print(chunk, end="", flush=True)
-```
-
-### JavaScript / TypeScript SDK
-
-```bash
-npm install rustyhand
-```
-
-```javascript
-import { RustyHandClient } from 'rustyhand';
-
-const client = new RustyHandClient('http://localhost:4200');
-
-// List agents
-const agents = await client.listAgents();
-
-// Send a message
-const result = await client.sendMessage(agentId, 'Analyze this CSV data');
-
-// Stream a response
-for await (const chunk of client.streamMessage(agentId, 'Write unit tests')) {
-  process.stdout.write(chunk);
+```json
+{
+  "mcpServers": {
+    "rustyhand": {
+      "command": "rustyhand",
+      "args": ["mcp"]
+    }
+  }
 }
 ```
 
-### curl (REST API)
+That's it. The AI agent now has 30+ tools to manage the entire system.
+
+### Available MCP Tools
+
+| Tool | What it does |
+|------|-------------|
+| **System** | |
+| `rustyhand_system_health` | Check daemon health and DB connectivity |
+| `rustyhand_system_status` | Uptime, agent count, default provider/model |
+| `rustyhand_config_get` | Read current config (secrets redacted) |
+| `rustyhand_config_set` | Set config field by dotted path (e.g. `default_model.provider`) |
+| `rustyhand_config_reload` | Hot-reload config from `~/.rustyhand/config.toml` |
+| **Agents** | |
+| `rustyhand_agent_list` | List all agents (ID, name, state, model) |
+| `rustyhand_agent_get` | Full agent details by ID |
+| `rustyhand_agent_spawn` | Spawn new agent from TOML manifest |
+| `rustyhand_agent_kill` | Stop and remove agent |
+| `rustyhand_agent_message` | Send message, get LLM-powered response |
+| `rustyhand_agent_session` | Get conversation history |
+| `rustyhand_agent_set_model` | Change agent's LLM model at runtime |
+| `rustyhand_agent_session_reset` | Clear conversation history |
+| **Models & Providers** | |
+| `rustyhand_provider_list` | All 26 providers with auth status |
+| `rustyhand_model_list` | Available models (tier, context window, cost) |
+| **Budget** | |
+| `rustyhand_budget_status` | Global spend vs limits (hourly/daily/monthly) |
+| `rustyhand_budget_agents` | Per-agent cost ranking |
+| **Workflows** | |
+| `rustyhand_workflow_list` | List workflow definitions |
+| `rustyhand_workflow_run` | Execute workflow with input |
+| `rustyhand_workflow_runs` | List past workflow runs |
+| **Cron** | |
+| `rustyhand_cron_list` | List all scheduled jobs |
+| `rustyhand_cron_create` | Schedule recurring agent task (cron expression) |
+| `rustyhand_cron_delete` | Remove scheduled job |
+| **Approvals** | |
+| `rustyhand_approval_list` | List pending/approved/rejected requests |
+| `rustyhand_approval_approve` | Approve a pending execution |
+| `rustyhand_approval_reject` | Reject a pending execution |
+| **Other** | |
+| `rustyhand_channel_list` | Channel adapters and their status |
+| `rustyhand_template_list` | Available agent templates |
+| `rustyhand_tool_list` | All built-in tools available to agents |
+
+Plus: every running agent automatically becomes an MCP tool named `rusty_hand_agent_{name}`, so the AI agent can delegate tasks to specialized RustyHand agents.
+
+### Example: AI agent workflow via MCP
+
+An AI agent (Claude, GPT, etc.) can autonomously:
+
+1. `rustyhand_agent_spawn` — create a researcher agent with web access
+2. `rustyhand_agent_message` — ask it to research a topic
+3. `rustyhand_agent_spawn` — create a writer agent
+4. `rustyhand_agent_message` — pass research results to the writer
+5. `rustyhand_cron_create` — schedule the researcher to update weekly
+6. `rustyhand_budget_status` — check how much it all cost
+
+### Why an AI agent should use RustyHand
+
+- **Delegate work** — spawn specialized agents instead of doing everything yourself
+- **Persistent memory** — agents remember context across sessions (vector search + knowledge graph)
+- **37 channels** — reach users on Telegram, Discord, Slack, etc. without building integrations
+- **Budget control** — set spending limits so agents can't run up costs
+- **26 LLM providers** — use the best model for each task with automatic fallback
+- **Autonomous scheduling** — cron jobs run agents on schedule, no human needed
+- **60 bundled skills** — instant expertise in Kubernetes, AWS, PostgreSQL, Git, Python, etc.
+- **Approval gates** — dangerous actions require human approval before executing
+- **Audit trail** — every action is logged in a Merkle hash chain
+
+## REST API for Programmatic Access
 
 ```bash
 # Health check
@@ -884,7 +921,7 @@ curl -X POST http://localhost:4200/api/agents \
   -H "Content-Type: application/json" \
   -d '{"manifest_toml": "name = \"my-agent\"\nmodule = \"builtin:chat\"\n[model]\nprovider = \"groq\"\nmodel = \"llama-3.3-70b-versatile\"\napi_key_env = \"GROQ_API_KEY\"\nsystem_prompt = \"You are a helpful assistant.\""}'
 
-# Send a message (returns full response)
+# Send a message
 curl -X POST http://localhost:4200/api/agents/{id}/message \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello, what can you do?"}'
@@ -909,13 +946,7 @@ curl -X PUT http://localhost:4200/api/memory/agents/{id}/kv/project_name \
 curl http://localhost:4200/api/memory/agents/{id}/kv/project_name
 ```
 
-### MCP Server Mode
-
-RustyHand can act as an MCP server, exposing all agents as tools to any MCP-compatible client (Claude Desktop, Cursor, etc.):
-
-```bash
-rustyhand mcp  # Starts MCP server over stdio
-```
+SDKs for Python and JavaScript are included in `sdk/python/` and `sdk/javascript/`.
 
 ---
 
