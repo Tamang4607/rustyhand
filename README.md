@@ -478,8 +478,10 @@ output_format = "TelegramHtml"         # Markdown | TelegramHtml | SlackMrkdwn |
 
 3 native drivers (Anthropic, Gemini, OpenAI-compatible) route to 26 providers:
 
-**Cloud:** Anthropic, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, MiniMax, Zhipu, Moonshot, Qianfan, Copilot
+**Cloud:** **MiniMax (default)**, Anthropic, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, Zhipu, Moonshot, Qianfan, Copilot
 **Local:** Ollama, vLLM, LM Studio
+
+Default provider is **MiniMax M2.7** — fast, affordable ($0.30/M input tokens), and works out of the box with a single `MINIMAX_API_KEY` env var. Change anytime via `rustyhand config set default_model.provider <name>`.
 
 Features:
 - Intelligent routing with task complexity scoring
