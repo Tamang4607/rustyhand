@@ -564,9 +564,7 @@ impl RustyHandKernel {
         // Ensure data directory exists — with actionable error on permission failure
         if let Err(e) = std::fs::create_dir_all(&config.data_dir) {
             let path = config.data_dir.display();
-            let mut msg = format!("Failed to create data dir '{path}': {e}");
-
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
+            let msg = if e.kind() == std::io::ErrorKind::PermissionDenied {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::MetadataExt;
@@ -575,15 +573,21 @@ impl RustyHandKernel {
                     let owner_info = std::fs::metadata(parent)
                         .map(|m| format!("owned by uid {}", m.uid()))
                         .unwrap_or_else(|_| "owner unknown".to_string());
-                    msg = format!(
+                    format!(
                         "Permission denied creating '{path}': directory is {owner_info}, \
                          but process runs as uid {process_uid}. \
                          Fix: run `chown {process_uid}:{process_uid} {parent}` on the host, \
                          or start with `--user {process_uid}`",
                         parent = parent.display(),
-                    );
+                    )
                 }
-            }
+                #[cfg(not(unix))]
+                {
+                    format!("Permission denied creating '{path}': {e}")
+                }
+            } else {
+                format!("Failed to create data dir '{path}': {e}")
+            };
 
             return Err(KernelError::BootFailed(msg));
         }
