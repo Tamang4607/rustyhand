@@ -1468,16 +1468,16 @@ fn detect_best_provider() -> (&'static str, &'static str, &'static str) {
 /// Static list of supported providers: (id, env_var, default_model, display_name).
 fn provider_list() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     vec![
-        ("minimax", "MINIMAX_API_KEY", "MiniMax-M2.7", "MiniMax"),
-        ("groq", "GROQ_API_KEY", "llama-3.3-70b-versatile", "Groq"),
-        ("gemini", "GEMINI_API_KEY", "gemini-2.5-flash", "Gemini"),
-        ("deepseek", "DEEPSEEK_API_KEY", "deepseek-chat", "DeepSeek"),
         (
             "anthropic",
             "ANTHROPIC_API_KEY",
             "claude-sonnet-4-20250514",
             "Anthropic",
         ),
+        ("groq", "GROQ_API_KEY", "llama-3.3-70b-versatile", "Groq"),
+        ("gemini", "GEMINI_API_KEY", "gemini-2.5-flash", "Gemini"),
+        ("deepseek", "DEEPSEEK_API_KEY", "deepseek-chat", "DeepSeek"),
+        ("minimax", "MINIMAX_API_KEY", "MiniMax-M2.7", "MiniMax"),
         ("openai", "OPENAI_API_KEY", "gpt-4o", "OpenAI"),
         (
             "openrouter",
@@ -2341,10 +2341,10 @@ decay_rate = 0.05
         println!("\n  LLM Providers:");
     }
     let provider_keys = [
-        ("MINIMAX_API_KEY", "MiniMax", "minimax"),
+        ("ANTHROPIC_API_KEY", "Anthropic", "anthropic"),
         ("GROQ_API_KEY", "Groq", "groq"),
         ("OPENROUTER_API_KEY", "OpenRouter", "openrouter"),
-        ("ANTHROPIC_API_KEY", "Anthropic", "anthropic"),
+        ("MINIMAX_API_KEY", "MiniMax", "minimax"),
         ("OPENAI_API_KEY", "OpenAI", "openai"),
         ("DEEPSEEK_API_KEY", "DeepSeek", "deepseek"),
         ("GEMINI_API_KEY", "Gemini", "gemini"),

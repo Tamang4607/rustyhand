@@ -42,9 +42,9 @@ TOML
     cat >> "$CONFIG" <<TOML
 
 [default_model]
-provider = "${RUSTYHAND_PROVIDER:-minimax}"
-model = "${RUSTYHAND_MODEL:-MiniMax-M2.7}"
-api_key_env = "${RUSTYHAND_MODEL_KEY_ENV:-MINIMAX_API_KEY}"
+provider = "${RUSTYHAND_PROVIDER:-anthropic}"
+model = "${RUSTYHAND_MODEL:-claude-sonnet-4-20250514}"
+api_key_env = "${RUSTYHAND_MODEL_KEY_ENV:-ANTHROPIC_API_KEY}"
 TOML
     if [ -n "$RUSTYHAND_MODEL_BASE_URL" ]; then
         echo "base_url = \"$RUSTYHAND_MODEL_BASE_URL\"" >> "$CONFIG"

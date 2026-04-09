@@ -212,10 +212,10 @@ api_key = "your-bearer-token"          # Recommended for non-localhost access
 api_listen = "127.0.0.1:4200"          # HTTP bind address
 
 [default_model]
-provider = "minimax"                   # minimax, anthropic, gemini, openai, groq, ollama, etc.
-model = "MiniMax-M2.7"                 # Model identifier (or MiniMax-M2.7-highspeed)
-api_key_env = "MINIMAX_API_KEY"        # Env var holding the API key
-# base_url = "https://api.minimax.io/v1"  # Optional: override endpoint
+provider = "anthropic"                 # anthropic, openai, gemini, groq, ollama, minimax, etc.
+model = "claude-sonnet-4-20250514"     # Model identifier
+api_key_env = "ANTHROPIC_API_KEY"      # Env var holding the API key
+# base_url = "https://api.anthropic.com"  # Optional: override endpoint
 
 [memory]
 decay_rate = 0.05                      # Memory confidence decay
@@ -529,10 +529,10 @@ output_format = "TelegramHtml"         # Markdown | TelegramHtml | SlackMrkdwn |
 
 3 native drivers (Anthropic, Gemini, OpenAI-compatible) route to 26 providers:
 
-**Cloud:** **MiniMax (default)**, Anthropic, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, Zhipu, Moonshot, Qianfan, Copilot
+**Cloud:** **Anthropic (default)**, OpenAI, Gemini, Groq, DeepSeek, OpenRouter, Together, Mistral, Fireworks, Cohere, Perplexity, xAI, AI21, Cerebras, SambaNova, HuggingFace, Replicate, Qwen, MiniMax, Zhipu, Moonshot, Qianfan, Copilot
 **Local:** Ollama, vLLM, LM Studio
 
-Default provider is **MiniMax M2.7** — fast, affordable ($0.30/M input tokens), and works out of the box with a single `MINIMAX_API_KEY` env var. Change anytime via `rustyhand config set default_model.provider <name>`.
+Default provider is **Anthropic Claude Sonnet 4** — best-in-class tool use, extended thinking, and data security (API data is never used for training). Works out of the box with `ANTHROPIC_API_KEY`. Change anytime via `rustyhand config set default_model.provider <name>`.
 
 Features:
 - Intelligent routing with task complexity scoring
@@ -765,8 +765,8 @@ Set `RUSTYHAND_FORCE_ENV_CONFIG=1` to always regenerate config from env vars (ov
 
 | Env var | Provider |
 |---------|----------|
-| `MINIMAX_API_KEY` | MiniMax (default) |
-| `ANTHROPIC_API_KEY` | Anthropic Claude |
+| `ANTHROPIC_API_KEY` | Anthropic Claude (default) |
+| `MINIMAX_API_KEY` | MiniMax |
 | `OPENAI_API_KEY` | OpenAI |
 | `GROQ_API_KEY` | Groq |
 | `GEMINI_API_KEY` | Google Gemini |

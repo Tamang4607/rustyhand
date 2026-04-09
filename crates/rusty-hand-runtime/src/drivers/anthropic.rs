@@ -43,9 +43,21 @@ struct ApiRequest {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<ApiTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ApiThinkingConfig>,
+}
+
+/// Extended thinking configuration for Anthropic API.
+#[derive(Debug, Serialize)]
+struct ApiThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    budget_tokens: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -185,14 +197,43 @@ impl LlmDriver for AnthropicDriver {
             })
             .collect();
 
+        // Tool choice: "auto" when tools available, omit otherwise
+        let tool_choice = if !api_tools.is_empty() {
+            Some(serde_json::json!({"type": "auto"}))
+        } else {
+            None
+        };
+
+        // Extended thinking configuration
+        let thinking_config = request.thinking.as_ref().map(|t| ApiThinkingConfig {
+            thinking_type: "enabled".to_string(),
+            budget_tokens: t.budget_tokens,
+        });
+
+        // JSON mode: append instruction to system prompt (Anthropic doesn't have native response_format)
+        let system = if request.response_format == rusty_hand_types::agent::ResponseFormat::Json {
+            let base = system.unwrap_or_default();
+            Some(format!(
+                "{base}\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no explanation, no text outside the JSON object."
+            ))
+        } else {
+            system
+        };
+
         let api_request = ApiRequest {
             model: request.model.clone(),
             max_tokens: request.max_tokens,
             system,
             messages: api_messages,
             tools: api_tools,
-            temperature: Some(request.temperature),
+            tool_choice,
+            temperature: if thinking_config.is_some() {
+                None
+            } else {
+                Some(request.temperature)
+            },
             stream: false,
+            thinking: thinking_config,
         };
 
         // Retry loop for rate limits and overloads
@@ -292,14 +333,40 @@ impl LlmDriver for AnthropicDriver {
             })
             .collect();
 
+        let tool_choice = if !api_tools.is_empty() {
+            Some(serde_json::json!({"type": "auto"}))
+        } else {
+            None
+        };
+
+        let thinking_config = request.thinking.as_ref().map(|t| ApiThinkingConfig {
+            thinking_type: "enabled".to_string(),
+            budget_tokens: t.budget_tokens,
+        });
+
+        let system = if request.response_format == rusty_hand_types::agent::ResponseFormat::Json {
+            let base = system.unwrap_or_default();
+            Some(format!(
+                "{base}\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no explanation, no text outside the JSON object."
+            ))
+        } else {
+            system
+        };
+
         let api_request = ApiRequest {
             model: request.model.clone(),
             max_tokens: request.max_tokens,
             system,
             messages: api_messages,
             tools: api_tools,
-            temperature: Some(request.temperature),
+            tool_choice,
+            temperature: if thinking_config.is_some() {
+                None
+            } else {
+                Some(request.temperature)
+            },
             stream: true,
+            thinking: thinking_config,
         };
 
         // Retry loop for the initial HTTP request

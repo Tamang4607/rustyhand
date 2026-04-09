@@ -15,10 +15,10 @@
 # For Docker: set api_listen = "0.0.0.0:4200" (done automatically in Docker image)
 
 [default_model]
-provider = "minimax"                      # "minimax", "anthropic", "gemini", "openai", "groq", "ollama", etc.
-model = "MiniMax-M2.7"                    # Model identifier (M2.7-highspeed for faster inference)
-api_key_env = "MINIMAX_API_KEY"           # Environment variable holding API key
-# base_url = "https://api.minimax.io/v1"  # Optional: override API endpoint
+provider = "anthropic"                    # "anthropic", "openai", "gemini", "groq", "ollama", "minimax", etc.
+model = "claude-sonnet-4-20250514"        # Model identifier
+api_key_env = "ANTHROPIC_API_KEY"         # Environment variable holding API key
+# base_url = "https://api.anthropic.com"  # Optional: override API endpoint
 
 [memory]
 decay_rate = 0.05                         # Memory confidence decay rate

@@ -1349,9 +1349,9 @@ pub struct DefaultModelConfig {
 impl Default for DefaultModelConfig {
     fn default() -> Self {
         Self {
-            provider: "minimax".to_string(),
-            model: "MiniMax-M2.7".to_string(),
-            api_key_env: "MINIMAX_API_KEY".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+            api_key_env: "ANTHROPIC_API_KEY".to_string(),
             base_url: None,
         }
     }
