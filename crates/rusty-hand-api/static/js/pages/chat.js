@@ -50,20 +50,23 @@ function chatPage() {
       { cmd: '/agents', desc: 'Switch to Agents page' },
       { cmd: '/new', desc: 'Reset session (clear history)' },
       { cmd: '/compact', desc: 'Trigger LLM session compaction' },
-      { cmd: '/model', desc: 'Show or switch model (/model [name])' },
+      { cmd: '/model', desc: 'Show or switch model', args: 'name' },
       { cmd: '/stop', desc: 'Cancel current agent run' },
       { cmd: '/usage', desc: 'Show session token usage & cost' },
-      { cmd: '/think', desc: 'Toggle extended thinking (/think [on|off|stream])' },
+      { cmd: '/think', desc: 'Toggle extended thinking', args: 'on | off | stream' },
       { cmd: '/context', desc: 'Show context window usage & pressure' },
-      { cmd: '/verbose', desc: 'Cycle tool detail level (/verbose [off|on|full])' },
+      { cmd: '/verbose', desc: 'Cycle tool detail level', args: 'off | on | full' },
       { cmd: '/queue', desc: 'Check if agent is processing' },
       { cmd: '/status', desc: 'Show system status' },
       { cmd: '/clear', desc: 'Clear chat display' },
       { cmd: '/exit', desc: 'Disconnect from agent' },
       { cmd: '/budget', desc: 'Show spending limits and current costs' },
       { cmd: '/peers', desc: 'Show RHP peer network status' },
-      { cmd: '/a2a', desc: 'List discovered external A2A agents' }
+      { cmd: '/a2a', desc: 'List discovered external A2A agents' },
+      { cmd: '/export', desc: 'Export chat as Markdown file', args: '' }
     ],
+    isScrolledUp: false,
+    isDragging: false,
     tokenCount: 0,
 
     // ── Tip Bar ──
@@ -434,6 +437,9 @@ function chatPage() {
         case '/clear':
           self.messages = [];
           break;
+        case '/export':
+          self.exportChat();
+          break;
         case '/exit':
           RustyHandAPI.wsDisconnect();
           self._wsAgent = null;
@@ -644,6 +650,13 @@ function chatPage() {
         // New typing lifecycle
         case 'typing':
           if (data.state === 'start') {
+            // Mark last user message as delivered
+            for (var si = this.messages.length - 1; si >= 0; si--) {
+              if (this.messages[si].role === 'user' && this.messages[si].status === 'sending') {
+                this.messages[si].status = 'sent';
+                break;
+              }
+            }
             if (!this.messages.length || !this.messages[this.messages.length - 1].thinking) {
               this.messages.push({ id: ++msgId, role: 'agent', text: 'Processing...', meta: '', thinking: true, streaming: true, tools: [] });
               this.scrollToBottom();
@@ -857,7 +870,7 @@ function chatPage() {
         case 'error':
           this._clearTypingTimeout();
           this.messages = this.messages.filter(function(m) { return !m.thinking && !m.streaming; });
-          this.messages.push({ id: ++msgId, role: 'system', text: 'Error: ' + data.content, meta: '', tools: [], ts: Date.now() });
+          this.messages.push({ id: ++msgId, role: 'system', text: 'Error: ' + data.content, meta: '', tools: [], ts: Date.now(), retryable: true });
           this.sending = false;
           this.tokenCount = 0;
           this.scrollToBottom();
@@ -1032,8 +1045,8 @@ function chatPage() {
       // Collect image references for inline rendering
       var msgImages = uploadedFiles.filter(function(f) { return f.content_type && f.content_type.startsWith('image/'); });
 
-      // Always show user message immediately
-      this.messages.push({ id: ++msgId, role: 'user', text: finalText, meta: '', tools: [], images: msgImages, ts: Date.now() });
+      // Always show user message immediately with sending status
+      this.messages.push({ id: ++msgId, role: 'user', text: finalText, meta: '', tools: [], images: msgImages, ts: Date.now(), status: 'sending' });
       this.scrollToBottom();
       localStorage.setItem('rh-first-msg', 'true');
 
@@ -1126,11 +1139,63 @@ function chatPage() {
       var el = document.getElementById('messages');
       if (el) self.$nextTick(function() {
         el.scrollTop = el.scrollHeight;
+        self.isScrolledUp = false;
         if (self._needsCopyButtonInject) {
           self._needsCopyButtonInject = false;
           self.injectCodeCopyButtons();
         }
       });
+    },
+
+    checkScroll() {
+      var el = document.getElementById('messages');
+      if (!el) return;
+      this.isScrolledUp = (el.scrollTop + el.clientHeight) < (el.scrollHeight - 100);
+    },
+
+    retry(msg) {
+      // Find the last user message before this error
+      var idx = this.messages.indexOf(msg);
+      var lastUserMsg = null;
+      for (var i = idx - 1; i >= 0; i--) {
+        if (this.messages[i].role === 'user') {
+          lastUserMsg = this.messages[i].text;
+          break;
+        }
+      }
+      if (lastUserMsg) {
+        // Remove the error message
+        this.messages = this.messages.filter(function(m) { return m !== msg; });
+        // Re-send
+        this._sendPayload(lastUserMsg, [], []);
+      }
+    },
+
+    exportChat() {
+      if (!this.messages.length) { RustyHandToast.info('No messages to export'); return; }
+      var name = this.currentAgent ? this.currentAgent.name : 'chat';
+      var md = '# Chat with ' + name + '\n\n';
+      for (var i = 0; i < this.messages.length; i++) {
+        var m = this.messages[i];
+        var role = m.role === 'user' ? 'You' : m.role === 'agent' ? name : 'System';
+        var time = m.ts ? new Date(m.ts).toLocaleString() : '';
+        md += '### ' + role + (time ? ' (' + time + ')' : '') + '\n\n';
+        md += (m.text || '') + '\n\n';
+        if (m.tools && m.tools.length) {
+          for (var j = 0; j < m.tools.length; j++) {
+            md += '> Tool: ' + m.tools[j].name + '\n';
+          }
+          md += '\n';
+        }
+      }
+      var blob = new Blob([md], { type: 'text/markdown' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name + '-chat-' + new Date().toISOString().slice(0, 10) + '.md';
+      a.click();
+      URL.revokeObjectURL(url);
+      RustyHandToast.success('Chat exported');
     },
 
     addFiles(files) {

@@ -479,6 +479,107 @@ tr:hover td { background: var(--surface2); }
   border-color: var(--success);
 }
 
+/* Show actions on focus-within and touch devices */
+.message:focus-within .message-actions { opacity: 1; pointer-events: auto; }
+@media (pointer: coarse) {
+  .message:last-child .message-actions { opacity: 0.6; pointer-events: auto; }
+}
+
+/* Retry button on error messages */
+.btn-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-retry:hover { background: var(--accent-glow); }
+
+/* Scroll to bottom floating button */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  z-index: 5;
+  transition: all 0.2s var(--ease-spring);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+.scroll-to-bottom-btn.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.scroll-to-bottom-btn:hover {
+  background: var(--surface2);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Drag-drop overlay */
+.messages.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  position: relative;
+}
+.messages.drag-over::after {
+  content: 'Drop files here';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 92, 0, 0.05);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 3;
+  border-radius: inherit;
+}
+
+/* Slash command argument hints */
+.slash-menu-args {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+/* Message status indicator */
+.message-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  justify-content: flex-end;
+}
+.message-status .status-icon { font-size: 12px; }
+.message-status .sending { color: var(--text-muted); }
+.message-status .sent { color: var(--success); }
+.message-status .failed { color: var(--error); }
+
 /* Typing indicator dots — staggered bounce */
 .typing-dots {
   display: inline-flex;

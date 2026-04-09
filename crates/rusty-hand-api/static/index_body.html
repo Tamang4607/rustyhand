@@ -407,7 +407,7 @@
             </div>
 
             <!-- Messages area -->
-            <div class="messages" id="messages" @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="handleDrop($event); dragOver = false">
+            <div class="messages" id="messages" :class="{ 'drag-over': isDragging }" @dragover.prevent="isDragging = true" @dragleave="isDragging = false" @drop.prevent="handleDrop($event); isDragging = false" @scroll="checkScroll()" style="position:relative">
               <!-- Message list -->
               <template x-if="currentAgent">
                 <div>
@@ -492,16 +492,22 @@
                           <div class="message-time" x-text="formatTime(msg.ts)" x-show="msg.ts && !msg.thinking"></div>
                           <div class="message-meta" x-text="msg.meta" x-show="msg.meta"></div>
                         </div>
+                        <!-- Message status for user messages -->
+                        <div class="message-status" x-show="msg.role === 'user' && msg.status">
+                          <span class="status-icon sending" x-show="msg.status === 'sending'">&#8987;</span>
+                          <span class="status-icon sent" x-show="msg.status === 'sent'">&#10003;</span>
+                          <span class="status-icon failed" x-show="msg.status === 'error'">&#10007;</span>
+                        </div>
+                        <!-- Retry button on errors -->
+                        <button class="btn-retry" x-show="msg.retryable" @click="retry(msg)">&#8634; Retry</button>
                       </div>
                     </div>
                   </template>
                 </div>
               </template>
 
-              <!-- Drop zone overlay -->
-              <div x-show="dragOver" style="position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:var(--surface);opacity:0.92;border:2px dashed var(--accent);border-radius:8px;pointer-events:none">
-                <span style="font-size:16px;color:var(--accent);font-weight:600">Drop files here</span>
-              </div>
+              <!-- Scroll to bottom button -->
+              <button class="scroll-to-bottom-btn" :class="{ visible: isScrolledUp }" @click="scrollToBottom()" title="Jump to latest">&#8595;</button>
             </div>
 
             <!-- Input area -->
@@ -523,6 +529,7 @@
                 <template x-for="(cmd, idx) in filteredSlashCommands" :key="cmd.cmd">
                   <div class="slash-menu-item" :class="{ 'slash-active': idx === slashIdx }" @click="executeSlashCommand(cmd.cmd)" @mouseenter="slashIdx = idx">
                     <span class="font-bold" style="font-size:13px" x-text="cmd.cmd"></span>
+                    <span class="slash-menu-args" x-show="cmd.args" x-text="cmd.args"></span>
                     <span class="text-xs text-dim" x-text="cmd.desc"></span>
                   </div>
                 </template>
