@@ -131,6 +131,7 @@ mod tests {
             temperature: 0.0,
             system: None,
             thinking: None,
+            response_format: Default::default(),
         }
     }
 

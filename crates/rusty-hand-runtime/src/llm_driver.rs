@@ -59,6 +59,8 @@ pub struct CompletionRequest {
     pub system: Option<String>,
     /// Extended thinking configuration (if supported by the model).
     pub thinking: Option<rusty_hand_types::config::ThinkingConfig>,
+    /// Response format: text (default) or json for structured output.
+    pub response_format: rusty_hand_types::agent::ResponseFormat,
 }
 
 /// A response from an LLM completion.
@@ -270,6 +272,7 @@ mod tests {
             temperature: 0.0,
             system: None,
             thinking: None,
+            response_format: Default::default(),
         };
 
         let response = driver.stream(request, tx).await.unwrap();

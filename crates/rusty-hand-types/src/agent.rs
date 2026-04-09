@@ -360,6 +360,17 @@ impl ToolProfile {
     }
 }
 
+/// Response format for structured output.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseFormat {
+    /// Default: free-form text.
+    #[default]
+    Text,
+    /// Force JSON output. The model must respond with valid JSON.
+    Json,
+}
+
 /// LLM model configuration for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -378,6 +389,9 @@ pub struct ModelConfig {
     pub api_key_env: Option<String>,
     /// Optional base URL override for the provider.
     pub base_url: Option<String>,
+    /// Response format: `text` (default) or `json` for structured output.
+    #[serde(default)]
+    pub response_format: ResponseFormat,
 }
 
 impl Default for ModelConfig {
@@ -390,6 +404,7 @@ impl Default for ModelConfig {
             system_prompt: "You are a helpful AI agent.".to_string(),
             api_key_env: None,
             base_url: None,
+            response_format: ResponseFormat::default(),
         }
     }
 }

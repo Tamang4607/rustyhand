@@ -1958,6 +1958,7 @@ impl RustyHandKernel {
                 temperature: manifest.model.temperature,
                 system: Some(manifest.model.system_prompt.clone()),
                 thinking: None,
+                response_format: Default::default(),
             };
             let (complexity, routed_model) = router.select_model(&probe);
             info!(

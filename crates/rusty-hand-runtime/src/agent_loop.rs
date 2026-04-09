@@ -276,6 +276,7 @@ pub async fn run_agent_loop(
             temperature: manifest.model.temperature,
             system: Some(system_prompt.clone()),
             thinking: None,
+            response_format: manifest.model.response_format.clone(),
         };
 
         // Notify phase: Thinking
@@ -285,7 +286,8 @@ pub async fn run_agent_loop(
 
         // Call LLM with retry, error classification, and circuit breaker
         let provider_name = manifest.model.provider.as_str();
-        let mut response = call_with_retry(&*driver, request, Some(provider_name), None).await?;
+        let mut response =
+            call_with_retry(&*driver, request, Some(provider_name), None, None).await?;
 
         total_usage.input_tokens += response.usage.input_tokens;
         total_usage.output_tokens += response.usage.output_tokens;
@@ -748,7 +750,21 @@ async fn call_with_retry(
     request: CompletionRequest,
     provider: Option<&str>,
     cooldown: Option<&ProviderCooldown>,
+    llm_cache: Option<&crate::llm_cache::LlmCache>,
 ) -> RustyHandResult<crate::llm_driver::CompletionResponse> {
+    // Check LLM response cache first
+    if let Some(cache) = llm_cache {
+        let cache_key = crate::llm_cache::LlmCache::cache_key(
+            &request.model,
+            request.system.as_deref(),
+            &request.messages,
+        );
+        if let Some(cached) = cache.get(&cache_key) {
+            debug!("LLM cache hit for model={}", request.model);
+            return Ok(cached);
+        }
+    }
+
     // Check circuit breaker before calling
     if let (Some(provider), Some(cooldown)) = (provider, cooldown) {
         match cooldown.check(provider) {
@@ -775,6 +791,15 @@ async fn call_with_retry(
                 // Record success with circuit breaker
                 if let (Some(provider), Some(cooldown)) = (provider, cooldown) {
                     cooldown.record_success(provider);
+                }
+                // Store in LLM cache (only pure text responses, skip tool_use)
+                if let Some(cache) = llm_cache {
+                    let cache_key = crate::llm_cache::LlmCache::cache_key(
+                        &request.model,
+                        request.system.as_deref(),
+                        &request.messages,
+                    );
+                    cache.put(cache_key, &response);
                 }
                 return Ok(response);
             }
@@ -1156,6 +1181,7 @@ pub async fn run_agent_loop_streaming(
             temperature: manifest.model.temperature,
             system: Some(system_prompt.clone()),
             thinking: None,
+            response_format: manifest.model.response_format.clone(),
         };
 
         // Notify phase: Streaming (streaming variant always streams)
