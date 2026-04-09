@@ -175,13 +175,14 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg>
         </button>
         <div style="position:relative" x-data="{ moreOpen: false }">
-          <button class="sidebar-nav-icon-btn" :class="{ active: ['workflows','channels','skills'].indexOf(page) >= 0 }" @click="moreOpen = !moreOpen" title="More" data-tip="More">
+          <button class="sidebar-nav-icon-btn" :class="{ active: ['workflows','channels','skills','knowledge'].indexOf(page) >= 0 }" @click="moreOpen = !moreOpen" title="More" data-tip="More">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
           <div class="sidebar-more-menu" x-show="moreOpen" @click.outside="moreOpen = false" x-transition>
             <a class="sidebar-more-item" :class="{ active: page === 'workflows' }" @click="navigate('workflows'); moreOpen = false">Workflows</a>
             <a class="sidebar-more-item" :class="{ active: page === 'channels' }" @click="navigate('channels'); moreOpen = false">Channels</a>
             <a class="sidebar-more-item" :class="{ active: page === 'skills' }" @click="navigate('skills'); moreOpen = false">Skills</a>
+            <a class="sidebar-more-item" :class="{ active: page === 'knowledge' }" @click="navigate('knowledge'); moreOpen = false">Knowledge Graph</a>
           </div>
         </div>
       </div>
@@ -2299,6 +2300,113 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]</pre>
           </div>
 
           </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Page: Knowledge Graph -->
+    <template x-if="page === 'knowledge'">
+      <div x-data="knowledgePage" x-init="init()">
+        <div class="page-header">
+          <div class="flex items-center gap-3">
+            <h2 style="margin:0;font-size:18px">Knowledge Graph</h2>
+            <span class="badge badge-dim" x-text="nodes.length + ' entities'"></span>
+            <span class="badge badge-dim" x-text="edges.length + ' relations'"></span>
+            <button class="btn btn-ghost btn-sm" @click="refresh()">Refresh</button>
+          </div>
+          <p class="text-dim" style="font-size:12px;margin-top:4px">Entities and relations discovered by agents</p>
+        </div>
+
+        <div class="page-body" style="padding:24px">
+          <div x-show="loading" style="text-align:center;padding:48px;color:var(--text-muted)">Loading knowledge graph...</div>
+          <div x-show="error" style="padding:24px;color:var(--error)" x-text="error"></div>
+
+          <template x-if="!loading && !error">
+            <div>
+              <!-- Empty state -->
+              <template x-if="nodes.length === 0">
+                <div style="text-align:center;padding:64px 24px;color:var(--text-muted)">
+                  <div style="font-size:48px;margin-bottom:16px">&#128300;</div>
+                  <h3 style="font-size:16px;margin-bottom:8px;color:var(--text-dim)">No knowledge yet</h3>
+                  <p style="font-size:13px;max-width:400px;margin:0 auto">Agents build the knowledge graph automatically as they work. Use the <code>knowledge_add_entity</code> and <code>knowledge_add_relation</code> tools to add entities manually.</p>
+                </div>
+              </template>
+
+              <!-- Graph content -->
+              <template x-if="nodes.length > 0">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+                  <!-- Entities by type -->
+                  <div class="card" style="padding:20px">
+                    <h3 style="font-size:14px;margin-bottom:16px">Entities</h3>
+                    <template x-for="(type, typeName) in nodeTypes()" :key="typeName">
+                      <div style="margin-bottom:16px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                          <div style="width:10px;height:10px;border-radius:50%" :style="'background:' + typeColor(typeName)"></div>
+                          <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em" x-text="typeName"></span>
+                          <span class="badge badge-dim" style="font-size:10px" x-text="type.length"></span>
+                        </div>
+                        <template x-for="node in type" :key="node.id">
+                          <div @click="selectNode(node)" style="padding:8px 12px;border-radius:var(--radius-sm);cursor:pointer;margin-bottom:4px;transition:background 0.15s"
+                               :style="selectedNode === node ? 'background:var(--accent-glow);border-left:3px solid var(--accent)' : 'border-left:3px solid transparent'"
+                               @mouseenter="$el.style.background = selectedNode === node ? '' : 'var(--surface2)'" @mouseleave="$el.style.background = selectedNode === node ? 'var(--accent-glow)' : ''">
+                            <div style="font-size:13px;font-weight:500" x-text="node.name"></div>
+                            <div style="font-size:11px;color:var(--text-muted)" x-text="Object.keys(node.properties || {}).map(k => k + ': ' + JSON.stringify(node.properties[k])).join(', ')"></div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Relations / Detail panel -->
+                  <div>
+                    <!-- Selected node detail -->
+                    <template x-if="selectedNode">
+                      <div class="card" style="padding:20px;margin-bottom:16px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                          <div style="width:12px;height:12px;border-radius:50%" :style="'background:' + typeColor(selectedNode.type)"></div>
+                          <h3 style="font-size:16px;margin:0" x-text="selectedNode.name"></h3>
+                          <span class="badge badge-dim" x-text="selectedNode.type"></span>
+                        </div>
+                        <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px" x-text="'ID: ' + selectedNode.id"></div>
+
+                        <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:8px">Connections</h4>
+                        <template x-for="conn in connectedNames(selectedNode.id)" :key="conn.name + conn.relation">
+                          <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:13px;display:flex;gap:8px;align-items:center">
+                            <span style="color:var(--text-muted);font-size:11px" x-text="conn.direction === 'out' ? '\u2192' : '\u2190'"></span>
+                            <span class="font-mono" style="font-size:11px;color:var(--accent)" x-text="conn.relation"></span>
+                            <span x-text="conn.name"></span>
+                          </div>
+                        </template>
+                        <div x-show="connectedNames(selectedNode.id).length === 0" style="font-size:12px;color:var(--text-muted)">No connections</div>
+                      </div>
+                    </template>
+
+                    <!-- All relations table -->
+                    <div class="card" style="padding:20px">
+                      <h3 style="font-size:14px;margin-bottom:16px">Relations</h3>
+                      <template x-if="edges.length === 0">
+                        <div style="font-size:13px;color:var(--text-muted)">No relations yet</div>
+                      </template>
+                      <template x-if="edges.length > 0">
+                        <table class="table" style="width:100%">
+                          <thead><tr><th>Source</th><th>Relation</th><th>Target</th></tr></thead>
+                          <tbody>
+                            <template x-for="e in edges" :key="e.id">
+                              <tr>
+                                <td style="font-size:12px" x-text="(nodes.find(n => n.id === e.source) || {}).name || e.source"></td>
+                                <td class="font-mono" style="font-size:11px;color:var(--accent)" x-text="e.type"></td>
+                                <td style="font-size:12px" x-text="(nodes.find(n => n.id === e.target) || {}).name || e.target"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </template>

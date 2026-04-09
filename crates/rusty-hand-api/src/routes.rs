@@ -3402,6 +3402,72 @@ pub async fn list_tools() -> impl IntoResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Knowledge graph endpoint
+// ---------------------------------------------------------------------------
+
+/// GET /api/knowledge — Get knowledge graph (all entities and relations).
+pub async fn knowledge_graph(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    use rusty_hand_types::memory::GraphPattern;
+
+    // Query all relations (empty pattern = match all, limited to 100 by query_graph)
+    let pattern = GraphPattern {
+        source: None,
+        relation: None,
+        target: None,
+        max_depth: 10,
+    };
+
+    match state.kernel.memory.query_graph(pattern).await {
+        Ok(matches) => {
+            let mut nodes: Vec<serde_json::Value> = Vec::new();
+            let mut edges: Vec<serde_json::Value> = Vec::new();
+            let mut seen_nodes = std::collections::HashSet::new();
+
+            for m in &matches {
+                // Source entity
+                if seen_nodes.insert(m.source.id.clone()) {
+                    nodes.push(serde_json::json!({
+                        "id": m.source.id,
+                        "type": m.source.entity_type,
+                        "name": m.source.name,
+                        "properties": m.source.properties,
+                    }));
+                }
+                // Target entity
+                if seen_nodes.insert(m.target.id.clone()) {
+                    nodes.push(serde_json::json!({
+                        "id": m.target.id,
+                        "type": m.target.entity_type,
+                        "name": m.target.name,
+                        "properties": m.target.properties,
+                    }));
+                }
+                // Relation (uses source/target from the entity match)
+                edges.push(serde_json::json!({
+                    "source": m.source.id,
+                    "target": m.target.id,
+                    "type": serde_json::to_string(&m.relation.relation).unwrap_or_default(),
+                    "confidence": m.relation.confidence,
+                    "properties": m.relation.properties,
+                }));
+            }
+
+            Json(serde_json::json!({
+                "nodes": nodes,
+                "edges": edges,
+                "total_nodes": nodes.len(),
+                "total_edges": edges.len(),
+            }))
+        }
+        Err(e) => Json(serde_json::json!({
+            "nodes": [],
+            "edges": [],
+            "error": e.to_string(),
+        })),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Config endpoint
 // ---------------------------------------------------------------------------
 
@@ -6340,18 +6406,6 @@ pub async fn set_agent_file(
 // File Upload endpoints
 // ---------------------------------------------------------------------------
 
-/// Response body for file uploads.
-#[derive(serde::Serialize)]
-struct UploadResponse {
-    file_id: String,
-    filename: String,
-    content_type: String,
-    size: usize,
-    /// Transcription text for audio uploads (populated via Whisper STT).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transcription: Option<String>,
-}
-
 /// Metadata stored alongside uploaded files.
 struct UploadMeta {
     content_type: String,
@@ -6462,6 +6516,54 @@ pub async fn upload_file(
         },
     );
 
+    // Auto-ingest text documents into agent memory (RAG pipeline)
+    let ingested = if content_type.starts_with("text/") || content_type == "application/pdf" {
+        let text_content = if content_type == "application/pdf" {
+            // PDF: try to extract text (best-effort, use raw bytes as fallback)
+            String::from_utf8_lossy(&body).to_string()
+        } else {
+            String::from_utf8_lossy(&body).to_string()
+        };
+
+        if !text_content.trim().is_empty() {
+            let emb_driver = state.kernel.embedding_driver.as_deref();
+            match rusty_hand_runtime::ingest::ingest_text(
+                _agent_id,
+                &text_content,
+                &filename,
+                &state.kernel.memory,
+                emb_driver,
+                None,
+                None,
+            )
+            .await
+            {
+                Ok(result) => {
+                    tracing::info!(
+                        agent = %_agent_id,
+                        chunks = result.chunks,
+                        embedded = result.embedded,
+                        source = %filename,
+                        "Document ingested into agent memory"
+                    );
+                    Some(serde_json::json!({
+                        "chunks": result.chunks,
+                        "embedded": result.embedded,
+                        "source": result.source,
+                    }))
+                }
+                Err(e) => {
+                    tracing::warn!("Document ingestion failed: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Auto-transcribe audio uploads using the media engine
     let transcription = if content_type.starts_with("audio/") {
         let attachment = rusty_hand_types::media::MediaAttachment {
@@ -6493,12 +6595,13 @@ pub async fn upload_file(
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!(UploadResponse {
-            file_id,
-            filename,
-            content_type,
-            size,
-            transcription,
+        Json(serde_json::json!({
+            "file_id": file_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size": size,
+            "transcription": transcription,
+            "ingested": ingested,
         })),
     )
 }

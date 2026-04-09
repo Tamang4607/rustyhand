@@ -97,6 +97,61 @@ impl TelegramAdapter {
         Ok(())
     }
 
+    /// Call `sendMessage` and return the message ID (for subsequent edits).
+    async fn api_send_message_returning_id(
+        &self,
+        chat_id: i64,
+        text: &str,
+    ) -> Result<i64, Box<dyn std::error::Error>> {
+        let url = format!(
+            "https://api.telegram.org/bot{}/sendMessage",
+            self.token.as_str()
+        );
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+        });
+        let resp: serde_json::Value = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+        let msg_id = resp["result"]["message_id"]
+            .as_i64()
+            .ok_or("Missing message_id in sendMessage response")?;
+        Ok(msg_id)
+    }
+
+    /// Call `editMessageText` to update an existing message (for streaming).
+    async fn api_edit_message(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!(
+            "https://api.telegram.org/bot{}/editMessageText",
+            self.token.as_str()
+        );
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        });
+        let resp = self.client.post(&url).json(&body).send().await?;
+        if !resp.status().is_success() {
+            // Ignore "message is not modified" errors (Telegram returns 400 for identical text)
+            let body_text = resp.text().await.unwrap_or_default();
+            if !body_text.contains("message is not modified") {
+                warn!("Telegram editMessageText failed: {body_text}");
+            }
+        }
+        Ok(())
+    }
+
     /// Call `sendChatAction` to show "typing..." indicator.
     async fn api_send_typing(&self, chat_id: i64) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!(
@@ -308,6 +363,81 @@ impl ChannelAdapter for TelegramAdapter {
             .parse()
             .map_err(|_| format!("Invalid Telegram chat_id: {}", user.platform_id))?;
         self.api_send_typing(chat_id).await
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    async fn send_streaming(
+        &self,
+        user: &ChannelUser,
+        mut rx: tokio::sync::mpsc::Receiver<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let chat_id: i64 = user
+            .platform_id
+            .parse()
+            .map_err(|_| format!("Invalid Telegram chat_id: {}", user.platform_id))?;
+
+        let mut full_text = String::new();
+        let mut message_id: Option<i64> = None;
+        let mut last_edit = std::time::Instant::now();
+
+        // Minimum interval between edits to avoid Telegram rate limits (429)
+        const EDIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+        while let Some(chunk) = rx.recv().await {
+            full_text.push_str(&chunk);
+
+            // Send initial message or edit existing one
+            if message_id.is_none() {
+                // Send first chunk as new message
+                if !full_text.is_empty() {
+                    match self
+                        .api_send_message_returning_id(chat_id, &full_text)
+                        .await
+                    {
+                        Ok(mid) => message_id = Some(mid),
+                        Err(e) => {
+                            warn!("Telegram streaming: failed to send initial message: {e}");
+                            break;
+                        }
+                    }
+                    last_edit = std::time::Instant::now();
+                }
+            } else if last_edit.elapsed() >= EDIT_INTERVAL {
+                // Edit message with accumulated text (throttled)
+                if let Some(mid) = message_id {
+                    // Truncate to Telegram's 4096 char limit
+                    let display: String = full_text.chars().take(4096).collect();
+                    let _ = self.api_edit_message(chat_id, mid, &display).await;
+                    last_edit = std::time::Instant::now();
+                }
+            }
+        }
+
+        // Final edit with complete text
+        if let Some(mid) = message_id {
+            if !full_text.is_empty() {
+                // If text exceeds 4096, send overflow as new messages
+                let chunks = crate::types::split_message(&full_text, 4096);
+                let first = &chunks[0];
+                if chunks.len() == 1 {
+                    let _ = self.api_edit_message(chat_id, mid, first).await;
+                } else {
+                    // Edit first message, send rest as new messages
+                    let _ = self.api_edit_message(chat_id, mid, first).await;
+                    for extra in &chunks[1..] {
+                        let _ = self.api_send_message(chat_id, extra).await;
+                    }
+                }
+            }
+        } else if !full_text.is_empty() {
+            // Fallback: no initial message was sent, send full text
+            self.api_send_message(chat_id, &full_text).await?;
+        }
+
+        Ok(())
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error>> {

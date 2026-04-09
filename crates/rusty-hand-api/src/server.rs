@@ -335,6 +335,11 @@ pub async fn build_router(
         )
         // Tools endpoint
         .route("/api/tools", axum::routing::get(routes::list_tools))
+        // Knowledge graph
+        .route(
+            "/api/knowledge",
+            axum::routing::get(routes::knowledge_graph),
+        )
         // Config endpoints
         .route("/api/config", axum::routing::get(routes::get_config))
         .route(

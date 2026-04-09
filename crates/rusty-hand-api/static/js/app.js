@@ -513,7 +513,7 @@ function app() {
       });
 
       // Hash routing
-      var validPages = ['agents','approvals','workflows','automation','channels','skills','settings','analytics'];
+      var validPages = ['agents','approvals','workflows','automation','channels','skills','settings','analytics','knowledge'];
       var pageRedirects = {
         'chat': 'agents',
         'templates': 'agents',

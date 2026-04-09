@@ -25,6 +25,17 @@ pub trait ChannelBridgeHandle: Send + Sync {
     /// Send a message to an agent and get the text response.
     async fn send_message(&self, agent_id: AgentId, message: &str) -> Result<String, String>;
 
+    /// Send a message and receive streaming chunks via callback.
+    /// Default implementation falls back to non-streaming send_message.
+    async fn send_message_streaming(
+        &self,
+        agent_id: AgentId,
+        message: &str,
+        _on_chunk: Box<dyn Fn(&str) + Send + Sync>,
+    ) -> Result<String, String> {
+        self.send_message(agent_id, message).await
+    }
+
     /// Find an agent by name, returning its ID.
     async fn find_agent_by_name(&self, name: &str) -> Result<Option<AgentId>, String>;
 

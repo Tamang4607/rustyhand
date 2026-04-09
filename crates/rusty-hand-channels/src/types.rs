@@ -252,6 +252,29 @@ pub trait ChannelAdapter: Send + Sync {
         ChannelStatus::default()
     }
 
+    /// Whether this adapter supports progressive streaming (editMessageText-style).
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Send a streaming response — sends initial message, then edits it as chunks arrive.
+    /// Default: sends the full text at once via `send()`.
+    async fn send_streaming(
+        &self,
+        user: &ChannelUser,
+        mut rx: tokio::sync::mpsc::Receiver<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Default: collect all chunks and send as one message
+        let mut full_text = String::new();
+        while let Some(chunk) = rx.recv().await {
+            full_text.push_str(&chunk);
+        }
+        if !full_text.is_empty() {
+            self.send(user, ChannelContent::Text(full_text)).await?;
+        }
+        Ok(())
+    }
+
     /// Send a response as a thread reply (optional — default falls back to `send()`).
     async fn send_in_thread(
         &self,
