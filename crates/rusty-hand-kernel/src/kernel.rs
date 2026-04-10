@@ -603,14 +603,50 @@ impl RustyHandKernel {
                 .map_err(|e| KernelError::BootFailed(format!("Memory init failed: {e}")))?,
         );
 
-        // Create LLM driver
+        // Create LLM driver — try configured provider first, then auto-detect,
+        // then fall back to NullDriver so the kernel still boots without an API key.
         let driver_config = DriverConfig {
             provider: config.default_model.provider.clone(),
             api_key: std::env::var(&config.default_model.api_key_env).ok(),
             base_url: config.default_model.base_url.clone(),
         };
-        let primary_driver = drivers::create_driver(&driver_config)
-            .map_err(|e| KernelError::BootFailed(format!("LLM driver init failed: {e}")))?;
+        let primary_driver = match drivers::create_driver(&driver_config) {
+            Ok(d) => d,
+            Err(e) => {
+                warn!(
+                    provider = %config.default_model.provider,
+                    error = %e,
+                    "Default LLM provider unavailable — scanning for alternatives"
+                );
+                // Auto-detect: find the first provider with an API key in the environment
+                if let Some((provider, key_env, model)) = drivers::detect_available_provider() {
+                    info!(
+                        provider = %provider,
+                        model = %model,
+                        "Auto-detected LLM provider from {key_env}"
+                    );
+                    config.default_model.provider = provider.to_string();
+                    config.default_model.model = model.to_string();
+                    config.default_model.api_key_env = key_env.to_string();
+                    let auto_config = DriverConfig {
+                        provider: provider.to_string(),
+                        api_key: std::env::var(key_env).ok(),
+                        base_url: None,
+                    };
+                    drivers::create_driver(&auto_config).map_err(|e2| {
+                        KernelError::BootFailed(format!(
+                            "Auto-detected provider '{provider}' also failed: {e2}"
+                        ))
+                    })?
+                } else {
+                    warn!(
+                        "No LLM provider API key found — starting without LLM. \
+                         Set an API key env var or run `rustyhand init`."
+                    );
+                    Arc::new(drivers::NullDriver) as Arc<dyn LlmDriver>
+                }
+            }
+        };
 
         // If fallback providers are configured, wrap the primary driver in a FallbackDriver
         let driver: Arc<dyn LlmDriver> = if !config.fallback_providers.is_empty() {

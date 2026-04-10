@@ -10,7 +10,7 @@ pub mod fallback;
 pub mod gemini;
 pub mod openai;
 
-use crate::llm_driver::{DriverConfig, LlmDriver, LlmError};
+use crate::llm_driver::{CompletionRequest, CompletionResponse, DriverConfig, LlmDriver, LlmError};
 use rusty_hand_types::model_catalog::{
     AI21_BASE_URL, ANTHROPIC_BASE_URL, CEREBRAS_BASE_URL, COHERE_BASE_URL, DEEPSEEK_BASE_URL,
     FIREWORKS_BASE_URL, GEMINI_BASE_URL, GROQ_BASE_URL, HUGGINGFACE_BASE_URL, LMSTUDIO_BASE_URL,
@@ -286,6 +286,102 @@ pub fn create_driver(config: &DriverConfig) -> Result<Arc<dyn LlmDriver>, LlmErr
             provider
         ),
     })
+}
+
+/// Placeholder driver returned when no LLM provider is configured.
+///
+/// Returns a clear error message on any completion request, allowing the
+/// kernel to boot and serve the dashboard while prompting the user to
+/// configure an API key.
+pub struct NullDriver;
+
+#[async_trait::async_trait]
+impl LlmDriver for NullDriver {
+    async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        Err(LlmError::Api {
+            status: 0,
+            message: "No LLM provider configured. Set an API key environment variable \
+                      (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, MINIMAX_API_KEY) or run \
+                      `rustyhand init` to choose a provider."
+                .to_string(),
+        })
+    }
+}
+
+/// Auto-detect an available LLM provider by scanning environment variables.
+///
+/// Returns `(provider, api_key_env, recommended_model)` for the first provider
+/// whose API key is found in the environment. Providers are checked in priority
+/// order (most popular first). Returns `None` if no keys are found.
+pub fn detect_available_provider() -> Option<(&'static str, &'static str, &'static str)> {
+    // Priority order: premium cloud → popular alternatives → Chinese providers → local
+    const PROBE_ORDER: &[(&str, &str, &str)] = &[
+        ("anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
+        ("openai", "OPENAI_API_KEY", "gpt-4o"),
+        ("gemini", "GEMINI_API_KEY", "gemini-2.5-flash"),
+        ("minimax", "MINIMAX_API_KEY", "MiniMax-M1"),
+        ("deepseek", "DEEPSEEK_API_KEY", "deepseek-chat"),
+        ("groq", "GROQ_API_KEY", "llama-3.3-70b-versatile"),
+        ("mistral", "MISTRAL_API_KEY", "mistral-large-latest"),
+        (
+            "together",
+            "TOGETHER_API_KEY",
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        ),
+        ("xai", "XAI_API_KEY", "grok-3-mini"),
+        (
+            "openrouter",
+            "OPENROUTER_API_KEY",
+            "anthropic/claude-sonnet-4",
+        ),
+        (
+            "fireworks",
+            "FIREWORKS_API_KEY",
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        ),
+        ("perplexity", "PERPLEXITY_API_KEY", "sonar-pro"),
+        ("cohere", "COHERE_API_KEY", "command-r-plus"),
+        ("cerebras", "CEREBRAS_API_KEY", "llama-3.3-70b"),
+        (
+            "sambanova",
+            "SAMBANOVA_API_KEY",
+            "Meta-Llama-3.3-70B-Instruct",
+        ),
+        ("moonshot", "MOONSHOT_API_KEY", "moonshot-v1-auto"),
+        ("qwen", "DASHSCOPE_API_KEY", "qwen-plus"),
+        ("zhipu", "ZHIPU_API_KEY", "glm-4-plus"),
+        ("qianfan", "QIANFAN_API_KEY", "ernie-4.0-turbo-8k"),
+        (
+            "huggingface",
+            "HF_API_KEY",
+            "meta-llama/Llama-3.3-70B-Instruct",
+        ),
+        (
+            "replicate",
+            "REPLICATE_API_TOKEN",
+            "meta/meta-llama-3-70b-instruct",
+        ),
+        ("github-copilot", "GITHUB_TOKEN", "gpt-4o"),
+    ];
+    // Also check GOOGLE_API_KEY as an alias for Gemini
+    for &(provider, env_var, model) in PROBE_ORDER {
+        if std::env::var(env_var)
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_some()
+        {
+            return Some((provider, env_var, model));
+        }
+        if provider == "gemini"
+            && std::env::var("GOOGLE_API_KEY")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .is_some()
+        {
+            return Some(("gemini", "GOOGLE_API_KEY", model));
+        }
+    }
+    None
 }
 
 /// List all known provider names.
