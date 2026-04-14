@@ -192,6 +192,14 @@ pub trait ChannelBridgeHandle: Send + Sync {
         "Schedules not available.".to_string()
     }
 
+    /// Transcribe an audio file to text (speech-to-text).
+    ///
+    /// Used by the bridge to auto-transcribe Telegram voice messages before
+    /// forwarding the text to the agent.
+    async fn transcribe_audio(&self, _file_path: &str) -> Result<String, String> {
+        Err("Audio transcription not available.".to_string())
+    }
+
     /// List pending approval requests as formatted text.
     async fn list_approvals_text(&self) -> String {
         "No approvals pending.".to_string()
@@ -516,11 +524,98 @@ async fn dispatch_message(
             send_response(adapter, &message.sender, result, thread_id, output_format).await;
             return;
         }
+        // Media: download file from Telegram, then forward to agent
+        ChannelContent::Image { .. }
+        | ChannelContent::Voice { .. }
+        | ChannelContent::File { .. } => {
+            let file_id = message
+                .metadata
+                .get("file_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let media_type = message
+                .metadata
+                .get("media_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("file");
+
+            if file_id.is_empty() {
+                send_response(
+                    adapter,
+                    &message.sender,
+                    "Could not process media: missing file_id.".to_string(),
+                    thread_id,
+                    output_format,
+                )
+                .await;
+                return;
+            }
+
+            // Download the file from Telegram
+            let ext = match media_type {
+                "photo" => "jpg",
+                "voice" => "ogg",
+                "audio" => "mp3",
+                _ => "bin",
+            };
+            match adapter
+                .download_file(file_id, ext)
+                .await
+                .map_err(|e| e.to_string())
+            {
+                Ok(local_path) => {
+                    let caption_text = message
+                        .metadata
+                        .get("caption")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    // For voice/audio: auto-transcribe and send text to agent
+                    if media_type == "voice" || media_type == "audio" {
+                        match handle.transcribe_audio(&local_path).await {
+                            Ok(transcription) => {
+                                if caption_text.is_empty() {
+                                    format!("[Voice message transcription]: {transcription}")
+                                } else {
+                                    format!(
+                                        "[Voice message transcription]: {transcription}\n\nCaption: {caption_text}"
+                                    )
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Voice transcription failed: {e}");
+                                format!("[Voice message received, transcription failed: {e}]")
+                            }
+                        }
+                    } else if media_type == "photo" {
+                        if caption_text.is_empty() {
+                            format!("[Photo received, saved to {local_path}]")
+                        } else {
+                            format!("[Photo received with caption: {caption_text}. Saved to {local_path}]")
+                        }
+                    } else {
+                        let filename = match &message.content {
+                            ChannelContent::File { filename, .. } => filename.clone(),
+                            _ => "file".to_string(),
+                        };
+                        format!("[File received: {filename}. Saved to {local_path}]")
+                    }
+                }
+                Err(e) => {
+                    let err_msg = format!("Could not download media: {e}");
+                    warn!("{err_msg}");
+                    send_response(adapter, &message.sender, err_msg, thread_id, output_format)
+                        .await;
+                    return;
+                }
+            }
+        }
         _ => {
             send_response(
                 adapter,
                 &message.sender,
-                "I can only handle text messages for now.".to_string(),
+                "Unsupported message type.".to_string(),
                 thread_id,
                 output_format,
             )

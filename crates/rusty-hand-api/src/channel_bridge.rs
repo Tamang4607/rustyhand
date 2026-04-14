@@ -570,6 +570,44 @@ impl ChannelBridgeHandle for KernelBridgeAdapter {
         }
     }
 
+    async fn transcribe_audio(&self, file_path: &str) -> Result<String, String> {
+        use rusty_hand_types::media::{MediaAttachment, MediaSource, MediaType};
+
+        let path = std::path::Path::new(file_path);
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("ogg");
+        let mime = match ext {
+            "ogg" => "audio/ogg",
+            "mp3" | "mpeg" => "audio/mpeg",
+            "wav" => "audio/wav",
+            "m4a" => "audio/m4a",
+            "flac" => "audio/flac",
+            "webm" => "audio/webm",
+            _ => "audio/ogg",
+        };
+        let size = tokio::fs::metadata(file_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let attachment = MediaAttachment {
+            media_type: MediaType::Audio,
+            mime_type: mime.to_string(),
+            source: MediaSource::FilePath {
+                path: file_path.to_string(),
+            },
+            size_bytes: size,
+        };
+
+        let result = self
+            .kernel
+            .media_engine
+            .transcribe_audio(&attachment)
+            .await
+            .map_err(|e| format!("Transcription failed: {e}"))?;
+
+        Ok(result.description)
+    }
+
     async fn list_approval_details(&self) -> Vec<(String, String, String, String)> {
         self.kernel
             .approval_manager

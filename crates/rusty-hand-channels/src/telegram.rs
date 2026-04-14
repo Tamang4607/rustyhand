@@ -339,6 +339,58 @@ impl TelegramAdapter {
         Ok(())
     }
 
+    /// Download a file from Telegram by file_id.
+    ///
+    /// Two-step process: `getFile` returns a file_path, then download from
+    /// `https://api.telegram.org/file/bot{token}/{file_path}`.
+    /// Saves to temp dir and returns the local path.
+    async fn api_download_file(
+        &self,
+        file_id: &str,
+        extension: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Step 1: getFile → get file_path
+        let url = format!(
+            "https://api.telegram.org/bot{}/getFile",
+            self.token.as_str()
+        );
+        let body = serde_json::json!({"file_id": file_id});
+        let resp: serde_json::Value = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?
+            .json()
+            .await?;
+        let file_path = resp["result"]["file_path"]
+            .as_str()
+            .ok_or("Missing file_path in getFile response")?;
+
+        // Step 2: Download file content
+        let download_url = format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            self.token.as_str(),
+            file_path
+        );
+        let bytes = self.client.get(&download_url).send().await?.bytes().await?;
+
+        // Save to temp directory
+        let dir = std::env::temp_dir().join("rusty_hand_telegram_media");
+        tokio::fs::create_dir_all(&dir).await?;
+        let local_path = dir.join(format!(
+            "{}.{extension}",
+            uuid::Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("file")
+        ));
+        tokio::fs::write(&local_path, &bytes).await?;
+
+        Ok(local_path.to_string_lossy().to_string())
+    }
+
     /// Call `sendChatAction` to show "typing..." indicator.
     async fn api_send_typing(&self, chat_id: i64) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!(
@@ -587,6 +639,14 @@ impl ChannelAdapter for TelegramAdapter {
         self.api_answer_callback_query(callback_id, text).await
     }
 
+    async fn download_file(
+        &self,
+        file_id: &str,
+        extension: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        self.api_download_file(file_id, extension).await
+    }
+
     fn supports_streaming(&self) -> bool {
         true
     }
@@ -729,38 +789,130 @@ fn parse_telegram_update(
     let chat_type = message["chat"]["type"].as_str().unwrap_or("private");
     let is_group = chat_type == "group" || chat_type == "supergroup";
 
-    let text = message["text"].as_str()?;
     let message_id = message["message_id"].as_i64().unwrap_or(0);
     let timestamp = message["date"]
         .as_i64()
         .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
         .unwrap_or_else(chrono::Utc::now);
+    let caption = message["caption"].as_str().map(String::from);
 
-    // Parse bot commands (Telegram sends entities for /commands)
-    let content = if let Some(entities) = message["entities"].as_array() {
-        let is_bot_command = entities
-            .iter()
-            .any(|e| e["type"].as_str() == Some("bot_command") && e["offset"].as_i64() == Some(0));
-        if is_bot_command {
-            let parts: Vec<&str> = text.splitn(2, ' ').collect();
-            let cmd_name = parts[0].trim_start_matches('/');
-            // Strip @botname from command (e.g. /agents@mybot -> agents)
-            let cmd_name = cmd_name.split('@').next().unwrap_or(cmd_name);
-            let args = if parts.len() > 1 {
-                parts[1].split_whitespace().map(String::from).collect()
+    // Determine content: check media types first, then text.
+    // Media messages store file_id in metadata for deferred download by the bridge.
+    let (content, mut metadata) = if let Some(photos) = message["photo"].as_array() {
+        // Photo: take the highest-resolution variant (last in array)
+        let best = photos.last()?;
+        let file_id = best["file_id"].as_str()?.to_string();
+        let mut meta = HashMap::new();
+        meta.insert(
+            "file_id".to_string(),
+            serde_json::Value::String(file_id.clone()),
+        );
+        meta.insert(
+            "media_type".to_string(),
+            serde_json::Value::String("photo".to_string()),
+        );
+        (
+            ChannelContent::Image {
+                url: file_id,
+                caption: caption.clone(),
+            },
+            meta,
+        )
+    } else if let Some(voice) = message.get("voice") {
+        let file_id = voice["file_id"].as_str()?.to_string();
+        let duration = voice["duration"].as_u64().unwrap_or(0) as u32;
+        let mut meta = HashMap::new();
+        meta.insert(
+            "file_id".to_string(),
+            serde_json::Value::String(file_id.clone()),
+        );
+        meta.insert(
+            "media_type".to_string(),
+            serde_json::Value::String("voice".to_string()),
+        );
+        (
+            ChannelContent::Voice {
+                url: file_id,
+                duration_seconds: duration,
+            },
+            meta,
+        )
+    } else if let Some(audio) = message.get("audio") {
+        let file_id = audio["file_id"].as_str()?.to_string();
+        let duration = audio["duration"].as_u64().unwrap_or(0) as u32;
+        let mut meta = HashMap::new();
+        meta.insert(
+            "file_id".to_string(),
+            serde_json::Value::String(file_id.clone()),
+        );
+        meta.insert(
+            "media_type".to_string(),
+            serde_json::Value::String("audio".to_string()),
+        );
+        (
+            ChannelContent::Voice {
+                url: file_id,
+                duration_seconds: duration,
+            },
+            meta,
+        )
+    } else if let Some(document) = message.get("document") {
+        let file_id = document["file_id"].as_str()?.to_string();
+        let file_name = document["file_name"].as_str().unwrap_or("file").to_string();
+        let mut meta = HashMap::new();
+        meta.insert(
+            "file_id".to_string(),
+            serde_json::Value::String(file_id.clone()),
+        );
+        meta.insert(
+            "media_type".to_string(),
+            serde_json::Value::String("document".to_string()),
+        );
+        (
+            ChannelContent::File {
+                url: file_id,
+                filename: file_name,
+            },
+            meta,
+        )
+    } else if let Some(text) = message["text"].as_str() {
+        // Text message — check for bot commands
+        let content = if let Some(entities) = message["entities"].as_array() {
+            let is_bot_command = entities.iter().any(|e| {
+                e["type"].as_str() == Some("bot_command") && e["offset"].as_i64() == Some(0)
+            });
+            if is_bot_command {
+                let parts: Vec<&str> = text.splitn(2, ' ').collect();
+                let cmd_name = parts[0].trim_start_matches('/');
+                let cmd_name = cmd_name.split('@').next().unwrap_or(cmd_name);
+                let args = if parts.len() > 1 {
+                    parts[1].split_whitespace().map(String::from).collect()
+                } else {
+                    vec![]
+                };
+                ChannelContent::Command {
+                    name: cmd_name.to_string(),
+                    args,
+                }
             } else {
-                vec![]
-            };
-            ChannelContent::Command {
-                name: cmd_name.to_string(),
-                args,
+                ChannelContent::Text(text.to_string())
             }
         } else {
             ChannelContent::Text(text.to_string())
-        }
+        };
+        (content, HashMap::new())
     } else {
-        ChannelContent::Text(text.to_string())
+        // Unsupported message type (sticker, contact, location, etc.)
+        return None;
     };
+
+    // Add caption as metadata if present (for media with captions)
+    if let Some(ref cap) = caption {
+        metadata.insert(
+            "caption".to_string(),
+            serde_json::Value::String(cap.clone()),
+        );
+    }
 
     // Use chat_id as the platform_id (so responses go to the right chat)
     Some(ChannelMessage {
@@ -776,7 +928,7 @@ fn parse_telegram_update(
         timestamp,
         is_group,
         thread_id: None,
-        metadata: HashMap::new(),
+        metadata,
     })
 }
 

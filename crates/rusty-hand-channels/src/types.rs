@@ -284,6 +284,18 @@ pub trait ChannelAdapter: Send + Sync {
         Ok(None)
     }
 
+    /// Download a file by platform-specific ID (optional — default error).
+    ///
+    /// Returns the local file path after downloading. Used to retrieve
+    /// photos, voice messages, and documents from Telegram.
+    async fn download_file(
+        &self,
+        _file_id: &str,
+        _extension: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        Err("File download not supported by this adapter".into())
+    }
+
     /// Answer an incoming callback query (optional — default no-op).
     ///
     /// Telegram requires `answerCallbackQuery` within 30s or the spinner
