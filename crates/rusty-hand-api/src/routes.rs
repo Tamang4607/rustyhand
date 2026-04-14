@@ -38,6 +38,31 @@ pub struct AppState {
     pub allowed_ws_origins: Vec<String>,
 }
 
+/// Create a sanitized JSON error response safe for external clients.
+///
+/// Logs the full error detail server-side with a correlation ID,
+/// then returns a generic message to the client. The correlation ID is
+/// included in 500-level responses so operators can find the cause in logs.
+fn safe_error(
+    status: StatusCode,
+    context: &str,
+    error: &dyn std::fmt::Display,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let error_id = uuid::Uuid::new_v4();
+    tracing::error!(
+        error_id = %error_id,
+        context = %context,
+        error = %error,
+        "Request failed"
+    );
+    let msg = match status {
+        StatusCode::BAD_REQUEST => format!("{context}: invalid request"),
+        StatusCode::NOT_FOUND => format!("{context}: not found"),
+        _ => format!("{context} failed (ref: {error_id})"),
+    };
+    (status, Json(serde_json::json!({ "error": msg })))
+}
+
 #[derive(serde::Deserialize)]
 pub struct BackupQuery {
     format: Option<String>,
@@ -357,10 +382,7 @@ pub async fn send_message(
         }
         Err(e) => {
             tracing::warn!("send_message failed for agent {id}: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Message delivery failed: {e}")})),
-            )
+            safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Message delivery", &e)
         }
     }
 }
@@ -1983,10 +2005,7 @@ pub async fn configure_channel(
         if let Some(env_var) = field_def.env_var {
             // Secret field — write to secrets.env and set in process
             if let Err(e) = write_secret_env(&secrets_path, env_var, value) {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Failed to write secret: {e}")})),
-                );
+                return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Channel secret save", &e);
             }
             std::env::set_var(env_var, value);
         } else {
@@ -1997,10 +2016,7 @@ pub async fn configure_channel(
 
     // Write config.toml section
     if let Err(e) = upsert_channel_config(&config_path, &name, &config_fields) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to write config: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Channel config save", &e);
     }
 
     // Hot-reload: activate the channel immediately
@@ -2066,9 +2082,10 @@ pub async fn remove_channel(
 
     // Remove config section
     if let Err(e) = remove_channel_config(&config_path, &name) {
-        return (
+        return safe_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to remove config: {e}")})),
+            "Channel config removal",
+            &e,
         );
     }
 
@@ -2335,10 +2352,7 @@ pub async fn import_memory_backup(
         ),
         Err(error) => {
             tracing::warn!("Memory import failed: {error}");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": format!("Backup import failed: {error}") })),
-            )
+            safe_error(StatusCode::BAD_REQUEST, "Backup import", &error)
         }
     }
 }
@@ -2745,10 +2759,7 @@ pub async fn install_skill(
         }
         Err(e) => {
             tracing::warn!("Skill install failed: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Install failed: {e}")})),
-            )
+            safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Skill install", &e)
         }
     }
 }
@@ -2771,10 +2782,7 @@ pub async fn uninstall_skill(
                 Json(serde_json::json!({"status": "uninstalled", "name": req.name})),
             )
         }
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::NOT_FOUND, "Skill uninstall", &e),
     }
 }
 
@@ -2807,7 +2815,9 @@ pub async fn marketplace_search(
         }
         Err(e) => {
             tracing::warn!("Marketplace search failed: {e}");
-            Json(serde_json::json!({"results": [], "total": 0, "error": format!("{e}")}))
+            Json(
+                serde_json::json!({"results": [], "total": 0, "error": "Marketplace search failed"}),
+            )
         }
     }
 }
@@ -2870,7 +2880,7 @@ pub async fn clawhub_search(
             (
                 StatusCode::OK,
                 Json(
-                    serde_json::json!({"items": [], "next_cursor": null, "error": format!("{e}")}),
+                    serde_json::json!({"items": [], "next_cursor": null, "error": "ClawHub search failed"}),
                 ),
             )
         }
@@ -2925,7 +2935,7 @@ pub async fn clawhub_browse(
             (
                 StatusCode::OK,
                 Json(
-                    serde_json::json!({"items": [], "next_cursor": null, "error": format!("{e}")}),
+                    serde_json::json!({"items": [], "next_cursor": null, "error": "ClawHub browse failed"}),
                 ),
             )
         }
@@ -2985,10 +2995,7 @@ pub async fn clawhub_skill_detail(
                 })),
             )
         }
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::NOT_FOUND, "Skill lookup", &e),
     }
 }
 
@@ -3054,7 +3061,7 @@ pub async fn clawhub_install(
                 StatusCode::INTERNAL_SERVER_ERROR
             };
             tracing::warn!("ClawHub install failed: {e}");
-            (status, Json(serde_json::json!({"error": format!("{e}")})))
+            safe_error(status, "ClawHub install", &e)
         }
     }
 }
@@ -3463,11 +3470,14 @@ pub async fn knowledge_graph(State(state): State<Arc<AppState>>) -> impl IntoRes
                 "total_edges": edges.len(),
             }))
         }
-        Err(e) => Json(serde_json::json!({
-            "nodes": [],
-            "edges": [],
-            "error": e.to_string(),
-        })),
+        Err(e) => {
+            tracing::warn!("Knowledge graph query failed: {e}");
+            Json(serde_json::json!({
+                "nodes": [],
+                "edges": [],
+                "error": "Knowledge graph query failed",
+            }))
+        }
     }
 }
 
@@ -3755,10 +3765,7 @@ pub async fn delete_session(
             StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "session_id": id})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session deletion", &e),
     }
 }
 
@@ -3799,9 +3806,10 @@ pub async fn set_session_label(
                 "label": label,
             })),
         ),
-        Err(e) => (
+        Err(e) => safe_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
+            "Session label update",
+            &e,
         ),
     }
 }
@@ -3841,10 +3849,7 @@ pub async fn find_session_by_label(
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "No session found with that label"})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session lookup", &e),
     }
 }
 
@@ -4350,7 +4355,7 @@ pub async fn a2a_send_task(
             let error_msg = rusty_hand_runtime::a2a::A2aMessage {
                 role: "agent".to_string(),
                 parts: vec![rusty_hand_runtime::a2a::A2aPart::Text {
-                    text: format!("Error: {e}"),
+                    text: "Agent task failed".to_string(),
                 }],
             };
             state.kernel.a2a_task_store.fail(&task_id, error_msg);
@@ -4359,10 +4364,7 @@ pub async fn a2a_send_task(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::to_value(&failed_task).unwrap_or_default()),
                 ),
-                None => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("Agent error: {e}")})),
-                ),
+                None => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Agent task", &e),
             }
         }
     }
@@ -4697,10 +4699,7 @@ pub async fn list_agent_sessions(
             StatusCode::OK,
             Json(serde_json::json!({"sessions": sessions})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session listing", &e),
     }
 }
 
@@ -4722,10 +4721,7 @@ pub async fn create_agent_session(
     let label = req.get("label").and_then(|v| v.as_str());
     match state.kernel.create_agent_session(agent_id, label) {
         Ok(session) => (StatusCode::OK, Json(session)),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session creation", &e),
     }
 }
 
@@ -4757,10 +4753,7 @@ pub async fn switch_agent_session(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "message": "Session switched"})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session switch", &e),
     }
 }
 
@@ -4785,10 +4778,7 @@ pub async fn reset_session(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "message": "Session reset"})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session reset", &e),
     }
 }
 
@@ -4811,10 +4801,7 @@ pub async fn compact_session(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "message": msg})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Session compaction", &e),
     }
 }
 
@@ -4841,10 +4828,7 @@ pub async fn stop_agent(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "message": "No active run"})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Stop agent", &e),
     }
 }
 
@@ -4877,10 +4861,7 @@ pub async fn set_model(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "model": model})),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Model switch", &e),
     }
 }
 
@@ -4958,10 +4939,7 @@ pub async fn set_agent_skills(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "skills": skills})),
         ),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::BAD_REQUEST, "Skill assignment", &e),
     }
 }
 
@@ -5046,10 +5024,7 @@ pub async fn set_agent_mcp_servers(
             StatusCode::OK,
             Json(serde_json::json!({"status": "ok", "mcp_servers": servers})),
         ),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::BAD_REQUEST, "MCP server assignment", &e),
     }
 }
 
@@ -5111,10 +5086,7 @@ pub async fn set_provider_key(
     // Write to secrets.env file
     let secrets_path = state.kernel.config.home_dir.join("secrets.env");
     if let Err(e) = write_secret_env(&secrets_path, &env_var, &key) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to write secrets.env: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Provider key save", &e);
     }
 
     // Set env var in current process so detect_auth picks it up
@@ -5166,9 +5138,10 @@ pub async fn delete_provider_key(
     // Remove from secrets.env
     let secrets_path = state.kernel.config.home_dir.join("secrets.env");
     if let Err(e) = remove_secret_env(&secrets_path, &env_var) {
-        return (
+        return safe_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to update secrets.env: {e}")})),
+            "Provider key removal",
+            &e,
         );
     }
 
@@ -5257,23 +5230,17 @@ pub async fn test_provider(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::OK,
-                    Json(serde_json::json!({
-                        "status": "error",
-                        "provider": name,
-                        "error": format!("{e}"),
-                    })),
+                Err(e) => safe_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Provider connection test",
+                    &e,
                 ),
             }
         }
-        Err(e) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "error",
-                "provider": name,
-                "error": format!("Failed to create driver: {e}"),
-            })),
+        Err(e) => safe_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Provider driver creation",
+            &e,
         ),
     }
 }
@@ -5330,9 +5297,10 @@ pub async fn create_skill(
     }
 
     if let Err(e) = std::fs::create_dir_all(&skill_dir) {
-        return (
+        return safe_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to create skill directory: {e}")})),
+            "Skill directory creation",
+            &e,
         );
     }
 
@@ -5345,10 +5313,7 @@ pub async fn create_skill(
 
     let toml_path = skill_dir.join("skill.toml");
     if let Err(e) = std::fs::write(&toml_path, &toml_content) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Failed to write skill.toml: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Skill creation", &e);
     }
 
     (
@@ -5617,13 +5582,13 @@ pub async fn add_integration(
             };
             match registry.install(entry) {
                 Ok(_) => None,
-                Err(e) => Some((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+                Err(e) => Some((StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))),
             }
         }
     }; // write lock dropped here
 
     if let Some((status, error)) = install_err {
-        return (status, Json(serde_json::json!({"error": error})));
+        return safe_error(status, "Integration install", &error);
     }
 
     state.kernel.extension_health.register(&id);
@@ -5658,10 +5623,7 @@ pub async fn remove_integration(
     };
 
     if let Some(e) = uninstall_err {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        );
+        return safe_error(StatusCode::NOT_FOUND, "Integration removal", &e);
     }
 
     state.kernel.extension_health.unregister(&id);
@@ -6088,10 +6050,7 @@ pub async fn clone_agent(
     let new_id = match state.kernel.spawn_agent(cloned_manifest) {
         Ok(id) => id,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Clone spawn failed: {e}")})),
-            );
+            return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Agent clone", &e);
         }
     };
 
@@ -6382,17 +6341,11 @@ pub async fn set_agent_file(
     // Atomic write: write to .tmp, then rename
     let tmp_path = workspace.join(format!(".{filename}.tmp"));
     if let Err(e) = std::fs::write(&tmp_path, &req.content) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Write failed: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "File write", &e);
     }
     if let Err(e) = std::fs::rename(&tmp_path, &file_path) {
         let _ = std::fs::remove_file(&tmp_path);
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Rename failed: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "File write", &e);
     }
 
     let size_bytes = req.content.len();
@@ -7019,19 +6972,11 @@ pub async fn config_set(
     let toml_string = match toml::to_string_pretty(&table) {
         Ok(s) => s,
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    serde_json::json!({"status": "error", "error": format!("serialize failed: {e}")}),
-                ),
-            );
+            return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Config save", &e);
         }
     };
     if let Err(e) = std::fs::write(&config_path, &toml_string) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"status": "error", "error": format!("write failed: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Config save", &e);
     }
 
     // Trigger reload
@@ -7206,10 +7151,7 @@ pub async fn delete_cron_job(
                         Json(serde_json::json!({"status": "deleted"})),
                     )
                 }
-                Err(e) => (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"error": format!("{e}")})),
-                ),
+                Err(e) => safe_error(StatusCode::NOT_FOUND, "Cron job deletion", &e),
             }
         }
         Err(_) => (
@@ -7252,10 +7194,7 @@ pub async fn toggle_cron_job(
                         Json(serde_json::json!({"id": id, "enabled": enabled})),
                     )
                 }
-                Err(e) => (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"error": format!("{e}")})),
-                ),
+                Err(e) => safe_error(StatusCode::NOT_FOUND, "Cron job toggle", &e),
             }
         }
         Err(_) => (
@@ -7419,10 +7358,7 @@ pub async fn webhook_wake(
         KernelHandle::publish_event(state.kernel.as_ref(), "webhook.wake", event_payload).await
     {
         tracing::warn!("Webhook wake event publish failed: {e}");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Event publish failed: {e}")})),
-        );
+        return safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Webhook event", &e);
     }
 
     (
@@ -7514,10 +7450,7 @@ pub async fn webhook_agent(
                 },
             })),
         ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Agent execution failed: {e}")})),
-        ),
+        Err(e) => safe_error(StatusCode::INTERNAL_SERVER_ERROR, "Agent execution", &e),
     }
 }
 
