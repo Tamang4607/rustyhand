@@ -65,18 +65,10 @@ impl AgentRouter {
 
     /// Look up the last sender for an agent (for push notifications).
     pub fn last_sender_for_agent(&self, agent_id: &str) -> Option<(String, String)> {
-        // AgentId is a UUID wrapper — try to parse from the string
-        if let Ok(id) = agent_id.parse::<uuid::Uuid>() {
-            self.last_sender
-                .get(&AgentId(id))
-                .map(|r| r.value().clone())
-        } else {
-            // Fallback: search by agent_id string prefix
-            self.last_sender
-                .iter()
-                .find(|r| r.key().0.to_string().starts_with(agent_id))
-                .map(|r| r.value().clone())
-        }
+        let id = agent_id.parse::<uuid::Uuid>().ok()?;
+        self.last_sender
+            .get(&AgentId(id))
+            .map(|r| r.value().clone())
     }
 
     /// Set the system-wide default agent.

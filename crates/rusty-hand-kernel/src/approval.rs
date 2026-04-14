@@ -84,9 +84,13 @@ impl ApprovalManager {
 
         // Fire notification callback BEFORE blocking on the oneshot.
         // This lets the bridge push a Telegram message with approve/reject buttons.
-        if let Ok(guard) = self.on_new_request.read() {
+        // NOTE: callback must be non-blocking (it runs on the agent's tokio task).
+        {
+            let guard = self
+                .on_new_request
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(cb) = guard.as_ref() {
-                // Retrieve the request from pending for the callback
                 if let Some(entry) = self.pending.get(&id) {
                     cb(&entry.value().request);
                 }

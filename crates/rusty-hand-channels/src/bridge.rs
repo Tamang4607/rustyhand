@@ -403,10 +403,18 @@ impl BridgeManager {
                         );
 
                         // Try each adapter until one can send
+                        let mut sent = false;
                         for adapter in &adapters {
                             if adapter.send_with_buttons(&user, &text, &buttons).await.is_ok() {
+                                sent = true;
                                 break;
                             }
+                        }
+                        if !sent {
+                            warn!(
+                                agent = %notif.agent_id,
+                                "Failed to push approval notification — no adapter could deliver"
+                            );
                         }
                     }
                     _ = shutdown.changed() => {
