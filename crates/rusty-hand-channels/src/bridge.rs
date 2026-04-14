@@ -481,11 +481,24 @@ async fn send_response(
     thread_id: Option<&str>,
     output_format: OutputFormat,
 ) {
+    send_response_reply(adapter, user, text, thread_id, output_format, None).await;
+}
+
+async fn send_response_reply(
+    adapter: &dyn ChannelAdapter,
+    user: &ChannelUser,
+    text: String,
+    thread_id: Option<&str>,
+    output_format: OutputFormat,
+    reply_to: Option<&str>,
+) {
     let formatted = formatter::format_for_channel(&text, output_format);
     let content = ChannelContent::Text(formatted);
 
     let result = if let Some(tid) = thread_id {
         adapter.send_in_thread(user, content, tid).await
+    } else if let Some(reply_id) = reply_to {
+        adapter.send_reply(user, content, reply_id).await
     } else {
         adapter.send(user, content).await
     };
@@ -709,6 +722,9 @@ async fn dispatch_message(
                     return;
                 }
             }
+        }
+        ChannelContent::Location { lat, lon } => {
+            format!("[Location shared: {lat}, {lon}](https://maps.google.com/?q={lat},{lon})")
         }
         _ => {
             send_response(
@@ -961,7 +977,15 @@ async fn dispatch_message(
     match result {
         Ok(response) => {
             if !adapter.supports_streaming() {
-                send_response(adapter, &message.sender, response, thread_id, output_format).await;
+                send_response_reply(
+                    adapter,
+                    &message.sender,
+                    response,
+                    thread_id,
+                    output_format,
+                    Some(&message.platform_message_id),
+                )
+                .await;
             }
             handle
                 .record_delivery(agent_id, ct_str, &message.sender.platform_id, true, None)

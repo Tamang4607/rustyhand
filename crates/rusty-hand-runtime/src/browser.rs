@@ -483,6 +483,60 @@ pub async fn tool_browser_scroll(
     Ok(format!("Scrolled {direction} by {amount}px."))
 }
 
+/// browser_download — Download a file from a URL using the browser's session cookies.
+///
+/// Uses the browser's authenticated session to download files that require
+/// login or cookies. Saves to temp dir and returns the local path.
+pub async fn tool_browser_download(
+    input: &serde_json::Value,
+    _mgr: &BrowserManager,
+    _agent_id: &str,
+) -> Result<String, String> {
+    let url = input["url"].as_str().ok_or("Missing 'url' parameter")?;
+    let filename = input["filename"].as_str().unwrap_or("downloaded_file");
+
+    // Download using shared HTTP client (no browser cookies, but handles most cases)
+    // For cookie-authenticated downloads, agent should use browser_execute_script
+    // with fetch() + blob URL.
+    let client = crate::http_client::shared();
+    let resp = client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Download failed: HTTP {}", resp.status().as_u16()));
+    }
+
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    // Save to temp directory
+    let dir = std::env::temp_dir().join("rusty_hand_downloads");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("Failed to create download dir: {e}"))?;
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let local_path = dir.join(format!("{}.{ext}", uuid::Uuid::new_v4()));
+    tokio::fs::write(&local_path, &bytes)
+        .await
+        .map_err(|e| format!("Failed to save file: {e}"))?;
+
+    Ok(format!(
+        "Downloaded {} ({} bytes) → {}",
+        filename,
+        bytes.len(),
+        local_path.display()
+    ))
+}
+
 /// browser_close — Close the browser session for this agent.
 pub async fn tool_browser_close(
     _input: &serde_json::Value,

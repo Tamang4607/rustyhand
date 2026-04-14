@@ -74,6 +74,16 @@ impl TelegramAdapter {
         chat_id: i64,
         text: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.api_send_message_reply(chat_id, text, None).await
+    }
+
+    /// Call `sendMessage` with optional reply-to for threading.
+    async fn api_send_message_reply(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i64>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",
             self.token.as_str()
@@ -81,17 +91,33 @@ impl TelegramAdapter {
 
         // Telegram has a 4096 character limit per message — split if needed
         let chunks = split_message(text, 4096);
-        for chunk in chunks {
-            let body = serde_json::json!({
+        for (i, chunk) in chunks.iter().enumerate() {
+            let mut body = serde_json::json!({
                 "chat_id": chat_id,
                 "text": chunk,
+                "parse_mode": "Markdown",
             });
+            // Only reply-to on the first chunk
+            if i == 0 {
+                if let Some(reply_id) = reply_to {
+                    body["reply_to_message_id"] = serde_json::json!(reply_id);
+                }
+            }
 
             let resp = self.client.post(&url).json(&body).send().await?;
             let status = resp.status();
             if !status.is_success() {
                 let body_text = resp.text().await.unwrap_or_default();
-                warn!("Telegram sendMessage failed ({status}): {body_text}");
+                if body_text.contains("can't parse entities") {
+                    // Fallback: retry without parse_mode (malformed markdown)
+                    let fallback = serde_json::json!({
+                        "chat_id": chat_id,
+                        "text": chunk,
+                    });
+                    let _ = self.client.post(&url).json(&fallback).send().await;
+                } else {
+                    warn!("Telegram sendMessage failed ({status}): {body_text}");
+                }
             }
         }
         Ok(())
@@ -110,6 +136,7 @@ impl TelegramAdapter {
         let body = serde_json::json!({
             "chat_id": chat_id,
             "text": text,
+            "parse_mode": "Markdown",
         });
         let resp: serde_json::Value = self
             .client
@@ -140,12 +167,22 @@ impl TelegramAdapter {
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text,
+            "parse_mode": "Markdown",
         });
         let resp = self.client.post(&url).json(&body).send().await?;
         if !resp.status().is_success() {
-            // Ignore "message is not modified" errors (Telegram returns 400 for identical text)
+            // Ignore "message is not modified" errors (Telegram returns 400 for identical text).
+            // Also retry without parse_mode if Markdown parsing fails (malformed markdown).
             let body_text = resp.text().await.unwrap_or_default();
-            if !body_text.contains("message is not modified") {
+            if body_text.contains("can't parse entities") {
+                // Fallback: send as plain text
+                let fallback_body = serde_json::json!({
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                });
+                let _ = self.client.post(&url).json(&fallback_body).send().await;
+            } else if !body_text.contains("message is not modified") {
                 warn!("Telegram editMessageText failed: {body_text}");
             }
         }
@@ -592,7 +629,7 @@ impl ChannelAdapter for TelegramAdapter {
 
         match content {
             ChannelContent::Text(text) => {
-                self.api_send_message(chat_id, &text).await?;
+                self.api_send_message_reply(chat_id, &text, None).await?;
             }
             ChannelContent::Image { url, caption } => {
                 self.api_send_photo(chat_id, &url, caption.as_deref())
@@ -608,6 +645,31 @@ impl ChannelAdapter for TelegramAdapter {
             _ => {
                 self.api_send_message(chat_id, "(Unsupported content type)")
                     .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn send_reply(
+        &self,
+        user: &ChannelUser,
+        content: ChannelContent,
+        reply_to_message_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let chat_id: i64 = user
+            .platform_id
+            .parse()
+            .map_err(|_| format!("Invalid Telegram chat_id: {}", user.platform_id))?;
+        let reply_id = reply_to_message_id.parse::<i64>().ok();
+
+        match content {
+            ChannelContent::Text(text) => {
+                self.api_send_message_reply(chat_id, &text, reply_id)
+                    .await?;
+            }
+            other => {
+                // For non-text, fall back to regular send (no reply_to support for media yet)
+                self.send(user, other).await?;
             }
         }
         Ok(())
@@ -907,8 +969,35 @@ fn parse_telegram_update(
             ChannelContent::Text(text.to_string())
         };
         (content, HashMap::new())
+    } else if let Some(sticker) = message.get("sticker") {
+        // Sticker: pass emoji to agent as text
+        let emoji = sticker["emoji"].as_str().unwrap_or("🎭");
+        let set_name = sticker["set_name"].as_str().unwrap_or("unknown");
+        (
+            ChannelContent::Text(format!("[Sticker: {emoji} from set \"{set_name}\"]")),
+            HashMap::new(),
+        )
+    } else if message.get("animation").is_some() {
+        // GIF/animation: inform agent
+        let caption_text = caption.as_deref().unwrap_or("");
+        if caption_text.is_empty() {
+            (
+                ChannelContent::Text("[GIF/animation received]".to_string()),
+                HashMap::new(),
+            )
+        } else {
+            (
+                ChannelContent::Text(format!("[GIF/animation with caption: {caption_text}]")),
+                HashMap::new(),
+            )
+        }
+    } else if let Some(location) = message.get("location") {
+        // Location sharing
+        let lat = location["latitude"].as_f64().unwrap_or(0.0);
+        let lon = location["longitude"].as_f64().unwrap_or(0.0);
+        (ChannelContent::Location { lat, lon }, HashMap::new())
     } else {
-        // Unsupported message type (sticker, contact, location, etc.)
+        // Truly unsupported (contact, dice, poll, etc.)
         return None;
     };
 

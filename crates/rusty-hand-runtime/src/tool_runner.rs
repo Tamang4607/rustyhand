@@ -462,6 +462,13 @@ pub async fn execute_tool(
             }
             None => Err("Browser tools not available.".to_string()),
         },
+        "browser_download" => match browser_ctx {
+            Some(mgr) => {
+                let aid = caller_agent_id.unwrap_or("default");
+                crate::browser::tool_browser_download(input, mgr, aid).await
+            }
+            None => Err("Browser tools not available.".to_string()),
+        },
 
         // Canvas / A2UI tool
         "canvas_present" => tool_canvas_present(input, workspace_root).await,
@@ -1046,6 +1053,18 @@ pub fn builtin_tool_definitions() -> Vec<ToolDefinition> {
                     "direction": { "type": "string", "enum": ["up", "down", "left", "right"], "description": "Scroll direction (default: down)" },
                     "amount": { "type": "integer", "description": "Pixels to scroll (default: 500)" }
                 }
+            }),
+        },
+        ToolDefinition {
+            name: "browser_download".to_string(),
+            description: "Download a file from a URL. Saves to a temp directory and returns the local path. Use for downloading PDFs, CSVs, images, or other files.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "URL to download" },
+                    "filename": { "type": "string", "description": "Suggested filename (for extension detection)" }
+                },
+                "required": ["url"]
             }),
         },
         // --- Media understanding tools ---

@@ -250,6 +250,16 @@ pub trait ChannelAdapter: Send + Sync {
         Ok(())
     }
 
+    /// Send a response as a reply to a specific message (optional — default falls back to `send()`).
+    async fn send_reply(
+        &self,
+        user: &ChannelUser,
+        content: ChannelContent,
+        _reply_to_message_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.send(user, content).await
+    }
+
     /// Send a lifecycle reaction to a message (optional — default no-op).
     async fn send_reaction(
         &self,
