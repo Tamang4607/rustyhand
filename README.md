@@ -6,8 +6,8 @@
 <h3 align="center">The Agent Operating System</h3>
 
 <p align="center">
-  Open-source Agent OS built in Rust. 134K LOC. 10 crates. 3,000+ tests. Zero clippy warnings.<br/>
-  <strong>One binary. Battle-tested. Agents that actually work for you.</strong>
+  Open-source Agent OS built in Rust. 135K LOC. 10 crates. 1,700+ tests. Zero clippy warnings.<br/>
+  <strong>One binary. Autonomous Telegram agent. Agents that actually work for you.</strong>
 </p>
 
 <p align="center">
@@ -19,16 +19,16 @@
 <p align="center">
   <img src="https://img.shields.io/badge/language-Rust-orange?style=flat-square" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" />
-  <img src="https://img.shields.io/badge/version-0.1.0-green?style=flat-square" alt="v0.1.0" />
-  <img src="https://img.shields.io/badge/tests-3,000%2B%20passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-0.4.0-green?style=flat-square" alt="v0.4.0" />
+  <img src="https://img.shields.io/badge/tests-1,712%20passing-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/clippy-0%20warnings-brightgreen?style=flat-square" alt="Clippy" />
 </p>
 
 ---
 
-> **v0.1.0 — First Public Release (April 2026)**
+> **v0.4.0 — Autonomous Telegram Agent (April 2026)**
 >
-> RustyHand is feature-complete but this is the first public release. You may encounter rough edges or breaking changes between minor versions. Pin to a specific commit for production use until v1.0. [Report issues here.](https://github.com/ginkida/rustyhand/issues)
+> RustyHand agents now work autonomously through Telegram: they see photos, hear voice, ask permission with inline buttons, show real-time progress, and push results from background tasks. 26 LLM providers auto-detected. [Report issues here.](https://github.com/ginkida/rustyhand/issues)
 
 ---
 
@@ -41,6 +41,7 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 - [What is RustyHand?](#what-is-rustyhand)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Telegram Setup](#telegram-setup)
 - [Configuration](#configuration)
 - [CLI Reference](#cli-reference)
 - [Autonomous Templates](#autonomous-templates)
@@ -65,7 +66,22 @@ This project is based on [OpenFang](https://github.com/RightNow-AI/openfang) by 
 
 RustyHand is an **open-source Agent Operating System** — not a chatbot framework, not a Python wrapper around an LLM. It is a full operating system for autonomous agents, built from scratch in Rust.
 
-Traditional agent frameworks wait for you to type something. RustyHand runs **autonomous agents that work for you** — on schedules, 24/7, building knowledge graphs, monitoring targets, generating leads, managing social media, and reporting results to your dashboard.
+Traditional agent frameworks wait for you to type something. RustyHand runs **autonomous agents that work for you** — on schedules, 24/7, building knowledge graphs, monitoring targets, generating leads, managing social media, and reporting results directly to your **Telegram chat**.
+
+### Telegram-First Autonomous Agent
+
+Telegram is the primary interface for RustyHand agents. Your agent can:
+
+| Capability | How it works |
+|------------|-------------|
+| **See photos** | Auto-describes images via vision API |
+| **Hear voice** | Auto-transcribes voice messages via Whisper |
+| **Receive files** | Downloads documents, forwards to agent |
+| **Send files/photos/voice** | Sends generated content back to chat |
+| **Ask permission** | Inline keyboard buttons (Approve/Reject) pushed automatically |
+| **Show progress** | Real-time tool-use updates: "⚙️ web_search..." → "✅ Done" |
+| **Report autonomously** | Background tasks push results to your chat without prompting |
+| **57 built-in tools** | Shell exec, web search, browser automation, RAG, knowledge graph, and more |
 
 The entire system compiles to a **single ~32MB binary**. One install, one command, your agents are live.
 
@@ -111,7 +127,7 @@ Or run directly with env vars (no config.toml needed):
 
 ```bash
 docker run -p 4200:4200 \
-  -e MINIMAX_API_KEY=your-key \
+  -e ANTHROPIC_API_KEY=your-key \
   -e RUSTYHAND_API_KEY=my-secret-bearer-token \
   -v rustyhand-data:/data \
   ghcr.io/ginkida/rustyhand:latest
@@ -128,7 +144,7 @@ All configuration can be set via `RUSTYHAND_*` environment variables — see [Do
 ```bash
 docker run -d --name rustyhand \
   -p 4200:4200 \
-  -e MINIMAX_API_KEY=your-key \
+  -e ANTHROPIC_API_KEY=your-key \
   -v rustyhand-data:/data \
   ghcr.io/ginkida/rustyhand:latest
 
@@ -141,7 +157,7 @@ To secure the API with a bearer token:
 ```bash
 docker run -d --name rustyhand \
   -p 4200:4200 \
-  -e MINIMAX_API_KEY=your-key \
+  -e ANTHROPIC_API_KEY=your-key \
   -e RUSTYHAND_API_KEY=my-secret-token \
   -v rustyhand-data:/data \
   ghcr.io/ginkida/rustyhand:latest
@@ -176,6 +192,72 @@ rustyhand tui
 # 7. Run diagnostics
 rustyhand doctor
 ```
+
+---
+
+## Telegram Setup
+
+Telegram is the **primary channel** for interacting with RustyHand agents. Setup takes 2 minutes:
+
+### 1. Create a Telegram Bot
+
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot`, follow prompts, get your bot token
+3. Set the token: `export TELEGRAM_BOT_TOKEN=123456:ABC-DEF...`
+
+### 2. Configure RustyHand
+
+```toml
+# ~/.rustyhand/config.toml
+[channels.telegram]
+bot_token_env = "TELEGRAM_BOT_TOKEN"
+allowed_users = []    # Empty = allow anyone. Set [123456] for specific user IDs.
+```
+
+### 3. Start and chat
+
+```bash
+rustyhand start
+# Open Telegram, message your bot
+# /agents — list agents
+# /agent assistant — select an agent
+# Send text, photos, voice messages — the agent handles all of them
+```
+
+### What your agent can do in Telegram
+
+```
+You:     [send a voice message]
+Agent:   [auto-transcribes via Whisper, processes your request]
+
+You:     [send a photo]
+Agent:   [auto-describes the image, responds based on what it sees]
+
+You:     "Search for Rust 2024 edition changes"
+Agent:   ⚙️ web_search...
+         ✅ web_search
+         Here are the key changes in Rust 2024...
+
+Agent:   ⚠️ Agent "coder" wants to execute:
+         `shell_exec: rm -rf /tmp/cache`
+         [✅ Approve] [❌ Reject]    ⏱️ 60s
+
+You:     [click ✅ Approve]
+Agent:   Done! Cache cleared.
+```
+
+### Autonomous mode
+
+Agents with `schedule_mode = "continuous"` or `"periodic"` run in the background and **push results to your Telegram chat automatically** — no prompting needed.
+
+```toml
+# agent.toml
+[schedule]
+mode = "periodic"
+cron = "0 9 * * *"    # Every day at 9 AM
+```
+
+The agent wakes up, performs its task, and sends the result to the last Telegram chat it was used in.
 
 ---
 
@@ -259,12 +341,12 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 Copy `.env.example` to `~/.rustyhand/.env` and fill in the keys you need:
 
 ```bash
-# LLM providers (set the ones you use)
-MINIMAX_API_KEY=eyJ...             # MiniMax M2.7 ($0.30/M input — recommended)
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GROQ_API_KEY=gsk_...
-DEEPSEEK_API_KEY=sk-...
+# LLM providers — set ANY key and RustyHand auto-detects the provider
+ANTHROPIC_API_KEY=sk-ant-...       # Default: Claude Sonnet 4 (recommended)
+OPENAI_API_KEY=sk-...              # GPT-4o
+MINIMAX_API_KEY=eyJ...             # MiniMax M1
+GROQ_API_KEY=gsk_...               # Llama 3.3 70B (ultra-fast)
+DEEPSEEK_API_KEY=sk-...            # DeepSeek Chat
 
 # Local LLM providers (no key needed)
 OLLAMA_BASE_URL=http://localhost:11434
@@ -480,8 +562,8 @@ author = "rusty-hand"
 module = "builtin:chat"
 
 [model]
-provider = "groq"
-model = "llama-3.3-70b-versatile"
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
 max_tokens = 4096
 temperature = 0.6
 system_prompt = """Your system prompt here..."""
