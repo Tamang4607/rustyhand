@@ -495,9 +495,9 @@ pub async fn tool_browser_download(
     let url = input["url"].as_str().ok_or("Missing 'url' parameter")?;
     let filename = input["filename"].as_str().unwrap_or("downloaded_file");
 
-    // Download using shared HTTP client (no browser cookies, but handles most cases)
-    // For cookie-authenticated downloads, agent should use browser_execute_script
-    // with fetch() + blob URL.
+    // SECURITY: SSRF check before any network I/O
+    crate::web_fetch::check_ssrf(url)?;
+
     let client = crate::http_client::shared();
     let resp = client
         .get(url)
@@ -508,6 +508,16 @@ pub async fn tool_browser_download(
 
     if !resp.status().is_success() {
         return Err(format!("Download failed: HTTP {}", resp.status().as_u16()));
+    }
+
+    // File size limit: 100 MB
+    const MAX_DOWNLOAD_SIZE: u64 = 100 * 1024 * 1024;
+    if let Some(len) = resp.content_length() {
+        if len > MAX_DOWNLOAD_SIZE {
+            return Err(format!(
+                "File too large: {len} bytes (max {MAX_DOWNLOAD_SIZE})"
+            ));
+        }
     }
 
     let bytes = resp

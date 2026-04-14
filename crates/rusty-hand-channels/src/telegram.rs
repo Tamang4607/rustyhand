@@ -124,6 +124,7 @@ impl TelegramAdapter {
     }
 
     /// Call `sendMessage` and return the message ID (for subsequent edits).
+    /// Tries Markdown first, falls back to plain text if parsing fails.
     async fn api_send_message_returning_id(
         &self,
         chat_id: i64,
@@ -146,10 +147,27 @@ impl TelegramAdapter {
             .await?
             .json()
             .await?;
-        let msg_id = resp["result"]["message_id"]
+
+        if let Some(msg_id) = resp["result"]["message_id"].as_i64() {
+            return Ok(msg_id);
+        }
+
+        // Fallback: retry without parse_mode (malformed markdown)
+        let fallback = serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+        });
+        let resp2: serde_json::Value = self
+            .client
+            .post(&url)
+            .json(&fallback)
+            .send()
+            .await?
+            .json()
+            .await?;
+        resp2["result"]["message_id"]
             .as_i64()
-            .ok_or("Missing message_id in sendMessage response")?;
-        Ok(msg_id)
+            .ok_or_else(|| "Missing message_id in sendMessage response".into())
     }
 
     /// Call `editMessageText` to update an existing message (for streaming).
@@ -1349,8 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_unsupported_message_type() {
-        // Sticker: no text, no photo, no voice, no document → None
+    fn test_parse_sticker_message() {
         let update = serde_json::json!({
             "update_id": 123463,
             "message": {
@@ -1358,7 +1375,30 @@ mod tests {
                 "from": { "id": 111, "first_name": "Alice" },
                 "chat": { "id": 111, "type": "private" },
                 "date": 1700000013,
-                "sticker": { "file_id": "sticker_id" }
+                "sticker": { "file_id": "sticker_id", "emoji": "😀", "set_name": "StickerPack" }
+            }
+        });
+        let msg = parse_telegram_update(&update, &[]).unwrap();
+        match &msg.content {
+            ChannelContent::Text(text) => {
+                assert!(text.contains("😀"), "Expected emoji: {text}");
+                assert!(text.contains("StickerPack"), "Expected set name: {text}");
+            }
+            other => unreachable!("Expected Text for sticker, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unsupported_message_type() {
+        // Contact: truly unsupported → None
+        let update = serde_json::json!({
+            "update_id": 123464,
+            "message": {
+                "message_id": 54,
+                "from": { "id": 111, "first_name": "Alice" },
+                "chat": { "id": 111, "type": "private" },
+                "date": 1700000014,
+                "contact": { "phone_number": "+1234567890", "first_name": "Bob" }
             }
         });
         assert!(parse_telegram_update(&update, &[]).is_none());
