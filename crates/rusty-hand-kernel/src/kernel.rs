@@ -3419,7 +3419,7 @@ impl RustyHandKernel {
                     match k.send_message(aid, &msg).await {
                         Ok(result) => {
                             // Push autonomous response to channel (Telegram, etc.)
-                            if !result.response.is_empty() {
+                            if !result.response.trim().is_empty() {
                                 let guard = k
                                     .on_autonomous_response
                                     .read()

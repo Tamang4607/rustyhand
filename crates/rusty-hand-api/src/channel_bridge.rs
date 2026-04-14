@@ -577,9 +577,20 @@ impl ChannelBridgeHandle for KernelBridgeAdapter {
             .map(|m| m.len())
             .unwrap_or(0);
 
+        let ext = std::path::Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("jpg");
+        let mime = match ext {
+            "png" => "image/png",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            _ => "image/jpeg",
+        };
         let attachment = MediaAttachment {
             media_type: MediaType::Image,
-            mime_type: "image/jpeg".to_string(),
+            mime_type: mime.to_string(),
             source: MediaSource::FilePath {
                 path: file_path.to_string(),
             },
@@ -1701,12 +1712,21 @@ pub async fn start_channel_bridge_with_config(
                     let content =
                         rusty_hand_channels::types::ChannelContent::Text(response.to_string());
                     let adapters = adapters_for_push.clone();
+                    let agent_id_str = agent_id.0.to_string();
                     // Fire-and-forget: spawn a task to send the response
                     tokio::spawn(async move {
+                        let mut sent = false;
                         for adapter in &adapters {
                             if adapter.send(&user, content.clone()).await.is_ok() {
+                                sent = true;
                                 break;
                             }
+                        }
+                        if !sent {
+                            tracing::warn!(
+                                agent = %agent_id_str,
+                                "Failed to push autonomous response — no adapter could deliver"
+                            );
                         }
                     });
                 },
