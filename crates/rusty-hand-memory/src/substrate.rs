@@ -207,6 +207,13 @@ impl MemorySubstrate {
         self.sessions.list_sessions()
     }
 
+    /// Batch-load session previews for all agents (one query instead of N).
+    pub fn get_session_previews_batch(
+        &self,
+    ) -> RustyHandResult<std::collections::HashMap<String, (String, String)>> {
+        self.sessions.get_previews_batch()
+    }
+
     /// Delete a session by ID.
     pub fn delete_session(&self, session_id: SessionId) -> RustyHandResult<()> {
         self.sessions.delete_session(session_id)

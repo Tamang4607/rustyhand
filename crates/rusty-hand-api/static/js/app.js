@@ -292,7 +292,8 @@ document.addEventListener('alpine:init', function() {
         var _pingStart = performance.now();
         var fresh = await RustyHandAPI.get('/api/agents');
         this.lastPingMs = Math.round(performance.now() - _pingStart);
-        var freshList = Array.isArray(fresh) ? fresh : [];
+        // Support both paginated {agents: [...], total} and legacy array responses
+        var freshList = Array.isArray(fresh) ? fresh : (fresh && fresh.agents ? fresh.agents : []);
         // Update existing agents in-place to avoid flicker from full array replacement
         var existingById = {};
         for (var i = 0; i < this.agents.length; i++) {

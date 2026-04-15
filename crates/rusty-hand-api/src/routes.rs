@@ -63,6 +63,24 @@ fn agent_not_found(id: &str) -> (StatusCode, Json<serde_json::Value>) {
 /// Logs the full error detail server-side with a correlation ID,
 /// then returns a generic message to the client. The correlation ID is
 /// included in 500-level responses so operators can find the cause in logs.
+/// Standard pagination query parameters for list endpoints.
+#[derive(serde::Deserialize)]
+pub struct PaginationQuery {
+    /// Maximum number of items to return (default 100, max 500).
+    pub limit: Option<usize>,
+    /// Number of items to skip (default 0).
+    pub offset: Option<usize>,
+}
+
+impl PaginationQuery {
+    fn limit(&self) -> usize {
+        self.limit.unwrap_or(100).min(500)
+    }
+    fn offset(&self) -> usize {
+        self.offset.unwrap_or(0)
+    }
+}
+
 fn safe_error(
     status: StatusCode,
     context: &str,
@@ -173,53 +191,28 @@ pub async fn spawn_agent(
 }
 
 /// GET /api/agents — List all agents.
-pub async fn list_agents(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn list_agents(
+    State(state): State<Arc<AppState>>,
+    Query(pagination): Query<PaginationQuery>,
+) -> impl IntoResponse {
+    // Batch-load all session previews in ONE query (eliminates N+1)
+    let previews = state
+        .kernel
+        .memory
+        .get_session_previews_batch()
+        .unwrap_or_default();
+
     let agents: Vec<serde_json::Value> = state
         .kernel
         .registry
         .list()
         .into_iter()
         .map(|e| {
-            // Extract last assistant message preview and activity timestamp from session
-            let (last_message_preview, last_activity) = state
-                .kernel
-                .memory
-                .get_session(e.session_id)
-                .ok()
-                .flatten()
-                .map(|session| {
-                    let last_assistant = session
-                        .messages
-                        .iter()
-                        .rev()
-                        .find(|m| matches!(m.role, rusty_hand_types::message::Role::Assistant));
-                    let preview = last_assistant
-                        .map(|m| {
-                            let mut text = m.content.text_content();
-                            // Strip <think>...</think> blocks from reasoning models
-                            while let Some(start) = text.find("<think>") {
-                                if let Some(end) = text.find("</think>") {
-                                    let after = end + "</think>".len();
-                                    text =
-                                        format!("{}{}", &text[..start], text[after..].trim_start());
-                                } else {
-                                    // Unclosed <think> — strip to end
-                                    text = text[..start].to_string();
-                                    break;
-                                }
-                            }
-                            let clean = text.trim();
-                            let truncated: String = clean.chars().take(80).collect();
-                            if truncated.len() < clean.len() {
-                                format!("{truncated}...")
-                            } else {
-                                truncated
-                            }
-                        })
-                        .unwrap_or_default();
-                    let activity = e.created_at.to_rfc3339();
-                    (preview, activity)
-                })
+            // Look up preview from batch-loaded map instead of per-agent query
+            let agent_id_str = e.id.to_string();
+            let (last_message_preview, last_activity) = previews
+                .get(&agent_id_str)
+                .map(|(preview, updated_at)| (preview.clone(), updated_at.clone()))
                 .unwrap_or_else(|| (String::new(), e.created_at.to_rfc3339()));
 
             serde_json::json!({
@@ -248,7 +241,18 @@ pub async fn list_agents(State(state): State<Arc<AppState>>) -> impl IntoRespons
         })
         .collect();
 
-    Json(agents)
+    // Apply pagination
+    let total = agents.len();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+    let paginated: Vec<_> = agents.into_iter().skip(offset).take(limit).collect();
+
+    Json(serde_json::json!({
+        "agents": paginated,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }))
 }
 
 /// Resolve uploaded file attachments into ContentBlock::Image blocks.
@@ -3748,7 +3752,10 @@ pub async fn agent_budget_ranking(State(state): State<Arc<AppState>>) -> impl In
 // ---------------------------------------------------------------------------
 
 /// GET /api/sessions — List all sessions with metadata.
-pub async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn list_sessions(
+    State(state): State<Arc<AppState>>,
+    Query(pagination): Query<PaginationQuery>,
+) -> impl IntoResponse {
     match state.kernel.memory.list_sessions() {
         Ok(sessions) => {
             let enriched: Vec<serde_json::Value> = sessions
@@ -3769,9 +3776,15 @@ pub async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoRespo
                     })
                 })
                 .collect();
-            Json(serde_json::json!({"sessions": enriched}))
+            let total = enriched.len();
+            let offset = pagination.offset();
+            let limit = pagination.limit();
+            let paginated: Vec<_> = enriched.into_iter().skip(offset).take(limit).collect();
+            Json(
+                serde_json::json!({"sessions": paginated, "total": total, "offset": offset, "limit": limit}),
+            )
         }
-        Err(_) => Json(serde_json::json!({"sessions": []})),
+        Err(_) => Json(serde_json::json!({"sessions": [], "total": 0})),
     }
 }
 

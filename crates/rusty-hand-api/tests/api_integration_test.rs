@@ -296,7 +296,8 @@ async fn test_spawn_list_kill_agent() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0]["name"], "test-agent");
     assert_eq!(agents[0]["id"], agent_id);
@@ -319,7 +320,8 @@ async fn test_spawn_list_kill_agent() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 0);
 }
 
@@ -363,7 +365,8 @@ memory_write = ["self.*"]
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents[0]["group"], "Operations");
 
     let resp = client
@@ -952,7 +955,8 @@ memory_write = ["self.*"]
         .send()
         .await
         .unwrap();
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 3);
 
     // Status should agree
@@ -978,7 +982,8 @@ memory_write = ["self.*"]
         .send()
         .await
         .unwrap();
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 2);
 
     // Kill the rest
@@ -996,7 +1001,8 @@ memory_write = ["self.*"]
         .send()
         .await
         .unwrap();
-    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let agents = body["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 0);
 }
 

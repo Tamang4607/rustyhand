@@ -207,7 +207,12 @@ async fn load_concurrent_agent_spawns() {
         .json()
         .await
         .unwrap();
-    let count = agents.as_array().map(|a| a.len()).unwrap_or(0);
+    let count = agents
+        .get("agents")
+        .and_then(|a| a.as_array())
+        .or_else(|| agents.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     eprintln!("  [LOAD] Total agents after spawn: {count}");
     assert!(count >= success);
 }

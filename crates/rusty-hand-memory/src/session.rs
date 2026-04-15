@@ -83,10 +83,11 @@ impl SessionStore {
         let messages_blob = rmp_serde::to_vec_named(&session.messages)
             .map_err(|e| RustyHandError::Serialization(e.to_string()))?;
         let now = Utc::now().to_rfc3339();
+        let message_count = session.messages.len() as i64;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, messages, context_window_tokens, label, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-             ON CONFLICT(id) DO UPDATE SET messages = ?3, context_window_tokens = ?4, label = ?5, updated_at = ?6",
+            "INSERT INTO sessions (id, agent_id, messages, context_window_tokens, label, message_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?6)
+             ON CONFLICT(id) DO UPDATE SET messages = ?3, context_window_tokens = ?4, label = ?5, message_count = ?7, updated_at = ?6",
             rusqlite::params![
                 session.id.0.to_string(),
                 session.agent_id.0.to_string(),
@@ -94,6 +95,7 @@ impl SessionStore {
                 session.context_window_tokens as i64,
                 session.label.as_deref(),
                 now,
+                message_count,
             ],
         )
         .map_err(|e| RustyHandError::Memory(e.to_string()))?;
@@ -129,6 +131,10 @@ impl SessionStore {
     }
 
     /// List all sessions with metadata (session_id, agent_id, message_count, created_at).
+    ///
+    /// Uses the `message_count` column (migration v8) to avoid deserializing
+    /// message blobs. Falls back to blob deserialization if column value is 0
+    /// (pre-migration data).
     pub fn list_sessions(&self) -> RustyHandResult<Vec<serde_json::Value>> {
         let conn = self
             .conn
@@ -136,7 +142,7 @@ impl SessionStore {
             .map_err(|e| RustyHandError::Internal(e.to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, agent_id, messages, created_at, label FROM sessions ORDER BY created_at DESC",
+                "SELECT id, agent_id, message_count, created_at, label, messages FROM sessions ORDER BY created_at DESC",
             )
             .map_err(|e| RustyHandError::Memory(e.to_string()))?;
 
@@ -144,13 +150,18 @@ impl SessionStore {
             .query_map([], |row| {
                 let session_id: String = row.get(0)?;
                 let agent_id: String = row.get(1)?;
-                let messages_blob: Vec<u8> = row.get(2)?;
+                let stored_count: i64 = row.get::<_, i64>(2).unwrap_or(0);
                 let created_at: String = row.get(3)?;
                 let label: Option<String> = row.get(4)?;
-                // Deserialize just to count messages
-                let msg_count = rmp_serde::from_slice::<Vec<Message>>(&messages_blob)
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                // Use stored count; fall back to blob deserialization for pre-v8 data
+                let msg_count = if stored_count > 0 {
+                    stored_count as usize
+                } else {
+                    let messages_blob: Vec<u8> = row.get(5)?;
+                    rmp_serde::from_slice::<Vec<Message>>(&messages_blob)
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                };
                 Ok(serde_json::json!({
                     "session_id": session_id,
                     "agent_id": agent_id,
@@ -166,6 +177,96 @@ impl SessionStore {
             sessions.push(row.map_err(|e| RustyHandError::Memory(e.to_string()))?);
         }
         Ok(sessions)
+    }
+
+    /// Batch-load session metadata for all agents in one query.
+    ///
+    /// Returns a map of agent_id → (session_id, message_count, updated_at).
+    /// Used by list_agents to avoid N+1 queries.
+    pub fn get_session_metadata_batch(
+        &self,
+    ) -> RustyHandResult<std::collections::HashMap<String, (String, i64, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustyHandError::Internal(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT agent_id, id, message_count, updated_at FROM sessions ORDER BY updated_at DESC",
+            )
+            .map_err(|e| RustyHandError::Memory(e.to_string()))?;
+
+        let mut map = std::collections::HashMap::new();
+        let rows = stmt
+            .query_map([], |row| {
+                let agent_id: String = row.get(0)?;
+                let session_id: String = row.get(1)?;
+                let msg_count: i64 = row.get::<_, i64>(2).unwrap_or(0);
+                let updated_at: String = row.get(3)?;
+                Ok((agent_id, session_id, msg_count, updated_at))
+            })
+            .map_err(|e| RustyHandError::Memory(e.to_string()))?;
+
+        for row in rows {
+            let (agent_id, session_id, msg_count, updated_at) =
+                row.map_err(|e| RustyHandError::Memory(e.to_string()))?;
+            // Keep only the most recent session per agent
+            map.entry(agent_id)
+                .or_insert((session_id, msg_count, updated_at));
+        }
+        Ok(map)
+    }
+
+    /// Batch-load last assistant message preview for all sessions in one query.
+    ///
+    /// Returns a map of agent_id → (preview_text, updated_at).
+    /// Deserializes message blobs but does it in a single DB round-trip
+    /// (1 query + 1 mutex lock instead of N).
+    pub fn get_previews_batch(
+        &self,
+    ) -> RustyHandResult<std::collections::HashMap<String, (String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| RustyHandError::Internal(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT agent_id, messages, updated_at FROM sessions")
+            .map_err(|e| RustyHandError::Memory(e.to_string()))?;
+
+        let mut map = std::collections::HashMap::new();
+        let rows = stmt
+            .query_map([], |row| {
+                let agent_id: String = row.get(0)?;
+                let messages_blob: Vec<u8> = row.get(1)?;
+                let updated_at: String = row.get(2)?;
+                Ok((agent_id, messages_blob, updated_at))
+            })
+            .map_err(|e| RustyHandError::Memory(e.to_string()))?;
+
+        for row in rows {
+            let (agent_id, blob, updated_at) =
+                row.map_err(|e| RustyHandError::Memory(e.to_string()))?;
+            let preview = rmp_serde::from_slice::<Vec<Message>>(&blob)
+                .ok()
+                .and_then(|msgs| {
+                    msgs.iter()
+                        .rev()
+                        .find(|m| matches!(m.role, Role::Assistant))
+                        .map(|m| {
+                            let text = m.content.text_content();
+                            let clean = text.trim();
+                            let truncated: String = clean.chars().take(80).collect();
+                            if truncated.len() < clean.len() {
+                                format!("{truncated}...")
+                            } else {
+                                truncated
+                            }
+                        })
+                })
+                .unwrap_or_default();
+            map.insert(agent_id, (preview, updated_at));
+        }
+        Ok(map)
     }
 
     /// Create a new empty session for an agent.
