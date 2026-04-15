@@ -19,16 +19,20 @@
 <p align="center">
   <img src="https://img.shields.io/badge/language-Rust-orange?style=flat-square" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" />
-  <img src="https://img.shields.io/badge/version-0.5.0-green?style=flat-square" alt="v0.5.0" />
-  <img src="https://img.shields.io/badge/tests-1,718%20passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-0.5.1-green?style=flat-square" alt="v0.5.1" />
+  <img src="https://img.shields.io/badge/tests-1,730%2B%20passing-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/clippy-0%20warnings-brightgreen?style=flat-square" alt="Clippy" />
 </p>
 
 ---
 
-> **v0.5.0 — Production-Ready Autonomous Agent (April 2026)**
+> **v0.5.1 — Hardening Release (April 2026)**
 >
-> RustyHand agents now work autonomously through Telegram: they see photos, hear voice, ask permission with inline buttons, show real-time progress, and push results from background tasks. 26 LLM providers auto-detected. [Report issues here.](https://github.com/ginkida/rustyhand/issues)
+> Comprehensive security, reliability, and UX hardening across all 10 crates.
+> 70 files improved: error body preservation in 45+ API error paths, SSRF streaming body limit,
+> HTTP client timeouts on all LLM drivers, graceful shutdown of background tasks, dashboard
+> accessibility (WCAG), keyboard shortcuts, API latency indicator, SSE stream timeout,
+> and 800+ lines of defensive improvements. [Report issues here.](https://github.com/ginkida/rustyhand/issues)
 
 ---
 
