@@ -46,6 +46,7 @@
       <span class="sidebar-label" x-show="!connected && !$store.app.booting && $store.app.connectionState === 'reconnecting'" class="conn-reconnecting">Reconnecting...</span>
       <span class="sidebar-label" x-show="!connected && !$store.app.booting && $store.app.connectionState !== 'reconnecting'" x-text="'disconnected' + ($store.app.lastError ? ' — ' + $store.app.lastError : '')">disconnected</span>
       <span class="conn-badge sidebar-label" :class="wsConnected ? 'ws' : 'http'" x-text="wsConnected ? 'WS' : 'HTTP'" x-show="connected"></span>
+      <span class="sidebar-label" x-show="connected && $store.app.lastPingMs > 0" x-text="$store.app.lastPingMs + 'ms'" style="font-size:9px;opacity:0.5" :title="'API latency: ' + $store.app.lastPingMs + 'ms'"></span>
     </div>
 
     <div class="sidebar-nav" role="navigation" aria-label="Main navigation">

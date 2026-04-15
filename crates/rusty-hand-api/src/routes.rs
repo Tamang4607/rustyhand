@@ -1151,9 +1151,17 @@ pub async fn send_message_stream(
             }
         };
 
-    let sse_stream = stream::unfold(rx, |mut rx| async move {
-        match rx.recv().await {
-            Some(event) => {
+    // Max stream duration to prevent stuck connections (10 minutes)
+    let stream_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
+
+    let sse_stream = stream::unfold(rx, move |mut rx| async move {
+        let remaining = stream_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            tracing::debug!("SSE stream reached 10-minute timeout");
+            return None;
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(event)) => {
                 let sse_event: Result<Event, std::convert::Infallible> = Ok(match event {
                     StreamEvent::TextDelta { text } => Event::default()
                         .event("chunk")
@@ -1188,7 +1196,15 @@ pub async fn send_message_stream(
                 });
                 Some((sse_event, rx))
             }
-            None => None,
+            Ok(None) => None,
+            Err(_) => {
+                // Stream timeout — send a final event and close
+                let timeout_event: Result<Event, std::convert::Infallible> = Ok(Event::default()
+                    .event("error")
+                    .json_data(serde_json::json!({"error": "Stream timeout (10 min limit)"}))
+                    .unwrap_or_else(|_| Event::default().data("timeout")));
+                Some((timeout_event, rx))
+            }
         }
     });
 
@@ -6076,7 +6092,9 @@ pub async fn clone_agent(
                     let src_file = src_can.join(fname);
                     let dst_file = dst_can.join(fname);
                     if src_file.exists() {
-                        let _ = std::fs::copy(&src_file, &dst_file);
+                        if let Err(e) = std::fs::copy(&src_file, &dst_file) {
+                            tracing::warn!(src = %src_file.display(), dst = %dst_file.display(), error = %e, "Failed to copy identity file");
+                        }
                     }
                 }
             }
@@ -7147,7 +7165,9 @@ pub async fn delete_cron_job(
             let job_id = rusty_hand_types::scheduler::CronJobId(uuid);
             match state.kernel.cron_scheduler.remove_job(job_id) {
                 Ok(_) => {
-                    let _ = state.kernel.cron_scheduler.persist();
+                    if let Err(e) = state.kernel.cron_scheduler.persist() {
+                        tracing::warn!(error = %e, "Failed to persist cron schedule");
+                    }
                     (
                         StatusCode::OK,
                         Json(serde_json::json!({"status": "deleted"})),
@@ -7190,7 +7210,9 @@ pub async fn toggle_cron_job(
             let job_id = rusty_hand_types::scheduler::CronJobId(uuid);
             match state.kernel.cron_scheduler.set_enabled(job_id, enabled) {
                 Ok(()) => {
-                    let _ = state.kernel.cron_scheduler.persist();
+                    if let Err(e) = state.kernel.cron_scheduler.persist() {
+                        tracing::warn!(error = %e, "Failed to persist cron schedule");
+                    }
                     (
                         StatusCode::OK,
                         Json(serde_json::json!({"id": id, "enabled": enabled})),
@@ -7225,7 +7247,9 @@ pub async fn run_cron_job(
             };
 
             let result = state.kernel.execute_cron_job(&job).await;
-            let _ = state.kernel.cron_scheduler.persist();
+            if let Err(e) = state.kernel.cron_scheduler.persist() {
+                tracing::warn!(error = %e, "Failed to persist cron schedule");
+            }
 
             match result {
                 Ok(rusty_hand_kernel::kernel::CronRunOutcome::SystemEvent { event_type }) => (

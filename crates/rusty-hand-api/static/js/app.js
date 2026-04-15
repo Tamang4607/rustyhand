@@ -137,6 +137,7 @@ document.addEventListener('alpine:init', function() {
     wsConnected: false,
     _wasConnected: false,
     connectionState: 'connected',
+    lastPingMs: 0,
     lastError: '',
     agentRefreshError: '',
     approvalsRefreshError: '',
@@ -288,7 +289,9 @@ document.addEventListener('alpine:init', function() {
 
     async refreshAgents() {
       try {
+        var _pingStart = performance.now();
         var fresh = await RustyHandAPI.get('/api/agents');
+        this.lastPingMs = Math.round(performance.now() - _pingStart);
         var freshList = Array.isArray(fresh) ? fresh : [];
         // Update existing agents in-place to avoid flicker from full array replacement
         var existingById = {};

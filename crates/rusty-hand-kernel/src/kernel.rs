@@ -1281,7 +1281,9 @@ impl RustyHandKernel {
                 self.scheduler.record_usage(agent_id, &result.total_usage);
 
                 // Update last active time
-                let _ = self.registry.set_state(agent_id, AgentState::Running);
+                if let Err(e) = self.registry.set_state(agent_id, AgentState::Running) {
+                    warn!(agent_id = %agent_id, error = %e, "Failed to update agent state to Running");
+                }
 
                 // SECURITY: Record successful message in audit trail
                 self.audit_log.record(
@@ -2454,7 +2456,9 @@ impl RustyHandKernel {
 
         // Persist the updated entry
         if let Some(entry) = self.registry.get(agent_id) {
-            let _ = self.memory.save_agent(&entry);
+            if let Err(e) = self.memory.save_agent(&entry) {
+                warn!(agent_id = %agent_id, error = %e, "Failed to persist agent after config update");
+            }
         }
 
         Ok(())
@@ -2483,7 +2487,9 @@ impl RustyHandKernel {
             .map_err(KernelError::RustyHand)?;
 
         if let Some(entry) = self.registry.get(agent_id) {
-            let _ = self.memory.save_agent(&entry);
+            if let Err(e) = self.memory.save_agent(&entry) {
+                warn!(agent_id = %agent_id, error = %e, "Failed to persist agent after skills update");
+            }
         }
 
         info!(agent_id = %agent_id, skills = ?skills, "Agent skills updated");
@@ -2522,7 +2528,9 @@ impl RustyHandKernel {
             .map_err(KernelError::RustyHand)?;
 
         if let Some(entry) = self.registry.get(agent_id) {
-            let _ = self.memory.save_agent(&entry);
+            if let Err(e) = self.memory.save_agent(&entry) {
+                warn!(agent_id = %agent_id, error = %e, "Failed to persist agent after MCP update");
+            }
         }
 
         info!(agent_id = %agent_id, servers = ?servers, "Agent MCP servers updated");
@@ -3501,12 +3509,22 @@ impl RustyHandKernel {
         }
 
         // Update agent states to Suspended in persistent storage (not delete)
+        let mut save_errors = 0u32;
         for entry in self.registry.list() {
-            let _ = self.registry.set_state(entry.id, AgentState::Suspended);
+            if let Err(e) = self.registry.set_state(entry.id, AgentState::Suspended) {
+                warn!(agent_id = %entry.id, error = %e, "Failed to suspend agent during shutdown");
+                save_errors += 1;
+            }
             // Re-save with Suspended state for clean resume on next boot
             if let Some(updated) = self.registry.get(entry.id) {
-                let _ = self.memory.save_agent(&updated);
+                if let Err(e) = self.memory.save_agent(&updated) {
+                    warn!(agent_id = %entry.id, error = %e, "Failed to persist agent during shutdown");
+                    save_errors += 1;
+                }
             }
+        }
+        if save_errors > 0 {
+            warn!("{save_errors} error(s) during agent state persistence at shutdown");
         }
 
         info!(
