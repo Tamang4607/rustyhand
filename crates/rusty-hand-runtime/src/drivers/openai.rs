@@ -404,7 +404,10 @@ impl LlmDriver for OpenAIDriver {
             if let Some(calls) = choice.message.tool_calls {
                 for call in calls {
                     let input: serde_json::Value =
-                        serde_json::from_str(&call.function.arguments).unwrap_or_default();
+                        serde_json::from_str(&call.function.arguments).unwrap_or_else(|e| {
+                            warn!(tool = %call.function.name, error = %e, "Failed to parse tool call arguments, using empty object");
+                            serde_json::Value::Object(Default::default())
+                        });
                     content.push(ContentBlock::ToolUse {
                         id: call.id.clone(),
                         name: call.function.name.clone(),
@@ -848,7 +851,11 @@ impl LlmDriver for OpenAIDriver {
             }
 
             for (id, name, arguments) in &tool_accum {
-                let input: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
+                let input: serde_json::Value =
+                    serde_json::from_str(arguments).unwrap_or_else(|e| {
+                        warn!(tool = %name, error = %e, "Failed to parse streamed tool call arguments");
+                        serde_json::Value::Object(Default::default())
+                    });
                 content.push(ContentBlock::ToolUse {
                     id: id.clone(),
                     name: name.clone(),
@@ -864,7 +871,8 @@ impl LlmDriver for OpenAIDriver {
                     .send(StreamEvent::ToolUseEnd {
                         id: id.clone(),
                         name: name.clone(),
-                        input: serde_json::from_str(arguments).unwrap_or_default(),
+                        input: serde_json::from_str(arguments)
+                            .unwrap_or(serde_json::Value::Object(Default::default())),
                     })
                     .await;
             }

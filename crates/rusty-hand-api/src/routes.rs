@@ -548,14 +548,9 @@ pub async fn kill_agent(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let agent_id: AgentId = match id.parse() {
+    let agent_id = match parse_agent_id(&id) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent ID"})),
-            );
-        }
+        Err(e) => return e,
     };
 
     match state.kernel.kill_agent(agent_id) {
@@ -778,10 +773,16 @@ pub async fn run_workflow(
             })),
         ),
         Err(e) => {
-            tracing::warn!("Workflow run failed for {id}: {e}");
+            tracing::warn!(workflow_id = %id, error = %e, "Workflow run failed");
+            let error_msg = format!("Workflow execution failed: {e}");
+            let truncated = if error_msg.len() > 500 {
+                &error_msg[..500]
+            } else {
+                &error_msg
+            };
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "Workflow execution failed"})),
+                Json(serde_json::json!({"error": truncated})),
             )
         }
     }
@@ -841,14 +842,9 @@ pub async fn create_trigger(
         }
     };
 
-    let agent_id: AgentId = match agent_id_str.parse() {
+    let agent_id = match parse_agent_id(agent_id_str) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent_id"})),
-            );
-        }
+        Err(e) => return e,
     };
 
     let pattern: TriggerPattern = match req.get("pattern") {

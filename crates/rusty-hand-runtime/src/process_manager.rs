@@ -109,18 +109,31 @@ impl ProcessManager {
         let stderr_buf = Arc::new(Mutex::new(Vec::<String>::new()));
 
         // Spawn background readers for stdout/stderr
+        // Per-line cap prevents OOM from subprocess producing mega-long lines.
+        const MAX_LINE_BYTES: usize = 64 * 1024; // 64KB per line
+        const MAX_LINES: usize = 1000;
+        const DRAIN_COUNT: usize = 100;
+
         if let Some(out) = stdout {
             let buf = stdout_buf.clone();
             tokio::spawn(async move {
                 let reader = BufReader::new(out);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    let truncated = if line.len() > MAX_LINE_BYTES {
+                        format!(
+                            "{}... [truncated, {} bytes]",
+                            &line[..MAX_LINE_BYTES],
+                            line.len()
+                        )
+                    } else {
+                        line
+                    };
                     let mut b = buf.lock().await;
-                    // Cap buffer at 1000 lines
-                    if b.len() >= 1000 {
-                        b.drain(..100); // remove oldest 100
+                    if b.len() >= MAX_LINES {
+                        b.drain(..DRAIN_COUNT);
                     }
-                    b.push(line);
+                    b.push(truncated);
                 }
             });
         }
@@ -131,11 +144,20 @@ impl ProcessManager {
                 let reader = BufReader::new(err);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    let truncated = if line.len() > MAX_LINE_BYTES {
+                        format!(
+                            "{}... [truncated, {} bytes]",
+                            &line[..MAX_LINE_BYTES],
+                            line.len()
+                        )
+                    } else {
+                        line
+                    };
                     let mut b = buf.lock().await;
-                    if b.len() >= 1000 {
-                        b.drain(..100);
+                    if b.len() >= MAX_LINES {
+                        b.drain(..DRAIN_COUNT);
                     }
-                    b.push(line);
+                    b.push(truncated);
                 }
             });
         }

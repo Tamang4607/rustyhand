@@ -540,7 +540,10 @@ impl LlmDriver for AnthropicDriver {
                             }) = blocks.last()
                             {
                                 let input: serde_json::Value =
-                                    serde_json::from_str(input_json).unwrap_or_default();
+                                    serde_json::from_str(input_json).unwrap_or_else(|e| {
+                                        warn!(tool = %name, error = %e, "Failed to parse tool input JSON");
+                                        serde_json::Value::Object(Default::default())
+                                    });
                                 let _ = tx
                                     .send(StreamEvent::ToolUseEnd {
                                         id: id.clone(),
@@ -586,7 +589,10 @@ impl LlmDriver for AnthropicDriver {
                         input_json,
                     } => {
                         let input: serde_json::Value =
-                            serde_json::from_str(&input_json).unwrap_or_default();
+                            serde_json::from_str(&input_json).unwrap_or_else(|e| {
+                                warn!(tool = %name, error = %e, "Failed to parse tool input JSON in stream");
+                                serde_json::Value::Object(Default::default())
+                            });
                         content.push(ContentBlock::ToolUse {
                             id: id.clone(),
                             name: name.clone(),
