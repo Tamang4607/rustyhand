@@ -106,7 +106,10 @@ impl TeamsAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Teams OAuth2 token error {status}: {body}").into());
         }
 
@@ -160,7 +163,10 @@ impl TeamsAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Teams API error {status}: {resp_body}");
             }
         }

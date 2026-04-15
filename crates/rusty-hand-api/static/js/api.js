@@ -245,9 +245,10 @@ var RustyHandAPI = (function() {
           var msg = '';
           try {
             var json = JSON.parse(text);
-            msg = json.error || r.statusText;
+            msg = json.error || json.message || r.statusText;
           } catch(e) {
-            msg = r.statusText;
+            // Response is not JSON — use the raw text if short enough, else status text
+            msg = (text && text.length < 200) ? text : r.statusText;
           }
           throw new Error(friendlyError(r.status, msg));
         });

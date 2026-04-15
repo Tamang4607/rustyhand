@@ -610,10 +610,10 @@ function agentsPage() {
           if (this.selectedPreset) patchBody.vibe = this.selectedPreset;
 
           if (Object.keys(patchBody).length) {
-            RustyHandAPI.patch('/api/agents/' + res.agent_id + '/config', patchBody).catch(function(e) { console.warn('Post-spawn config patch failed:', e.message); });
+            RustyHandAPI.patch('/api/agents/' + res.agent_id + '/config', patchBody).catch(function(e) { RustyHandToast.warn('Agent identity update failed: ' + e.message); });
           }
           if (this.soulContent.trim()) {
-            RustyHandAPI.put('/api/agents/' + res.agent_id + '/files/SOUL.md', { content: '# Soul\n' + this.soulContent }).catch(function(e) { console.warn('SOUL.md write failed:', e.message); });
+            RustyHandAPI.put('/api/agents/' + res.agent_id + '/files/SOUL.md', { content: '# Soul\n' + this.soulContent }).catch(function(e) { RustyHandToast.warn('SOUL.md write failed: ' + e.message); });
           }
 
           if (this.spawnForm.autonomous && this.spawnForm.cronExpr) {
@@ -628,7 +628,7 @@ function agentsPage() {
                 timeout_secs: 300
               },
               delivery: { kind: 'none' }
-            }).catch(function(e) { console.warn('Auto-schedule failed:', e.message); });
+            }).catch(function(e) { RustyHandToast.warn('Auto-schedule failed: ' + e.message); });
           }
 
           this.showSpawnModal = false;
@@ -769,7 +769,7 @@ function agentsPage() {
               schedule: { kind: 'cron', expr: t.cronExpr },
               action: { kind: 'agent_turn', message: t.cronMessage || 'Run scheduled task', timeout_secs: 300 },
               delivery: { kind: 'none' }
-            }).catch(function(e) { console.warn('Template auto-schedule failed:', e.message); });
+            }).catch(function(e) { RustyHandToast.warn('Auto-schedule failed: ' + e.message); });
           }
           RustyHandToast.success('Agent "' + t.name + '" spawned');
           await Alpine.store('app').refreshAgents();

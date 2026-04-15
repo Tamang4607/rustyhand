@@ -106,7 +106,10 @@ impl RevoltAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Revolt authentication failed {status}: {body}").into());
         }
 
@@ -141,7 +144,10 @@ impl RevoltAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Revolt send message error {status}: {resp_body}").into());
             }
         }
@@ -181,7 +187,10 @@ impl RevoltAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Revolt reply error {status}: {resp_body}");
             }
         }

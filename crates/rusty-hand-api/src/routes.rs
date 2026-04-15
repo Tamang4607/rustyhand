@@ -38,6 +38,26 @@ pub struct AppState {
     pub allowed_ws_origins: Vec<String>,
 }
 
+/// Parse an agent ID from a path parameter, returning a 400 error with debug logging on failure.
+fn parse_agent_id(id: &str) -> Result<AgentId, (StatusCode, Json<serde_json::Value>)> {
+    id.parse().map_err(|_| {
+        tracing::debug!(raw_id = %id, "Rejected invalid agent ID");
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid agent ID"})),
+        )
+    })
+}
+
+/// Return a 404 for a missing agent, with debug logging.
+fn agent_not_found(id: &str) -> (StatusCode, Json<serde_json::Value>) {
+    tracing::debug!(agent_id = %id, "Agent not found");
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "Agent not found"})),
+    )
+}
+
 /// Create a sanitized JSON error response safe for external clients.
 ///
 /// Logs the full error detail server-side with a correlation ID,
@@ -325,15 +345,18 @@ pub async fn send_message(
     Path(id): Path<String>,
     Json(req): Json<MessageRequest>,
 ) -> impl IntoResponse {
-    let agent_id: AgentId = match id.parse() {
+    let agent_id = match parse_agent_id(&id) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent ID"})),
-            );
-        }
+        Err(e) => return e,
     };
+
+    // Reject empty/whitespace-only messages
+    if req.message.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Message cannot be empty"})),
+        );
+    }
 
     // SECURITY: Reject oversized messages to prevent OOM / LLM token abuse.
     const MAX_MESSAGE_SIZE: usize = 64 * 1024; // 64KB
@@ -392,24 +415,14 @@ pub async fn get_agent_session(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let agent_id: AgentId = match id.parse() {
+    let agent_id = match parse_agent_id(&id) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent ID"})),
-            );
-        }
+        Err(e) => return e,
     };
 
     let entry = match state.kernel.registry.get(agent_id) {
         Some(e) => e,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Agent not found"})),
-            );
-        }
+        None => return agent_not_found(&id),
     };
 
     match state.kernel.memory.get_session(entry.session_id) {
@@ -1030,24 +1043,14 @@ pub async fn get_agent(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let agent_id: AgentId = match id.parse() {
+    let agent_id = match parse_agent_id(&id) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent ID"})),
-            );
-        }
+        Err(e) => return e,
     };
 
     let entry = match state.kernel.registry.get(agent_id) {
         Some(e) => e,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Agent not found"})),
-            );
-        }
+        None => return agent_not_found(&id),
     };
 
     (
@@ -1096,6 +1099,15 @@ pub async fn send_message_stream(
     use axum::response::sse::{Event, Sse};
     use futures::stream;
     use rusty_hand_runtime::llm_driver::StreamEvent;
+
+    // Reject empty/whitespace-only messages
+    if req.message.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Message cannot be empty"})),
+        )
+            .into_response();
+    }
 
     // SECURITY: Reject oversized messages to prevent OOM / LLM token abuse.
     const MAX_MESSAGE_SIZE: usize = 64 * 1024; // 64KB
@@ -2041,12 +2053,12 @@ pub async fn configure_channel(
         Err(e) => {
             tracing::warn!(error = %e, "Channel hot-reload failed after configure");
             (
-                StatusCode::OK,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "status": "configured",
+                    "status": "configured_but_not_activated",
                     "channel": name,
                     "activated": false,
-                    "note": format!("Configured, but hot-reload failed: {e}. Restart daemon to activate.")
+                    "error": format!("Channel configured but hot-reload failed: {e}. Restart daemon to activate.")
                 })),
             )
         }
@@ -2103,11 +2115,11 @@ pub async fn remove_channel(
         Err(e) => {
             tracing::warn!(error = %e, "Channel hot-reload failed after remove");
             (
-                StatusCode::OK,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "status": "removed",
+                    "status": "removed_but_still_active",
                     "channel": name,
-                    "note": format!("Removed, but hot-reload failed: {e}. Restart daemon to fully deactivate.")
+                    "error": format!("Channel removed from config but hot-reload failed: {e}. Restart daemon to fully deactivate.")
                 })),
             )
         }
@@ -6107,24 +6119,14 @@ pub async fn list_agent_files(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let agent_id: AgentId = match id.parse() {
+    let agent_id = match parse_agent_id(&id) {
         Ok(id) => id,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid agent ID"})),
-            );
-        }
+        Err(e) => return e,
     };
 
     let entry = match state.kernel.registry.get(agent_id) {
         Some(e) => e,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "Agent not found"})),
-            );
-        }
+        None => return agent_not_found(&id),
     };
 
     let workspace = match entry.manifest.workspace {

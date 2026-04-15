@@ -135,6 +135,9 @@ pub struct RustyHandKernel {
     /// The bridge registers this to push responses to Telegram/Discord/etc.
     /// Signature: (agent_id, response_text) → ().
     on_autonomous_response: std::sync::RwLock<Option<AutonomousResponseCallback>>,
+    /// Abort handles for long-running background system tasks (cleanup, heartbeat, cron, etc.).
+    /// These are aborted during graceful shutdown after agent tasks drain.
+    background_handles: std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
 }
 
 /// Result of executing a cron job immediately.
@@ -999,6 +1002,7 @@ impl RustyHandKernel {
             booted_at: std::time::Instant::now(),
             self_handle: OnceLock::new(),
             on_autonomous_response: std::sync::RwLock::new(None),
+            background_handles: std::sync::Mutex::new(Vec::new()),
         };
 
         // Restore persisted agents from SQLite
@@ -3098,7 +3102,7 @@ impl RustyHandKernel {
         // Periodic usage data cleanup (every 24 hours, retain 90 days)
         {
             let kernel = Arc::clone(self);
-            tokio::spawn(async move {
+            let h = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
                 interval.tick().await; // Skip first immediate tick
                 loop {
@@ -3117,6 +3121,7 @@ impl RustyHandKernel {
                     }
                 }
             });
+            self.track_background(h.abort_handle());
         }
 
         // Periodic memory consolidation (decays stale memory confidence)
@@ -3124,7 +3129,7 @@ impl RustyHandKernel {
             let interval_hours = self.config.memory.consolidation_interval_hours;
             if interval_hours > 0 {
                 let kernel = Arc::clone(self);
-                tokio::spawn(async move {
+                let h = tokio::spawn(async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(
                         interval_hours * 3600,
                     ));
@@ -3151,6 +3156,7 @@ impl RustyHandKernel {
                         }
                     }
                 });
+                self.track_background(h.abort_handle());
                 info!("Memory consolidation scheduled every {interval_hours} hour(s)");
             }
         }
@@ -3171,15 +3177,16 @@ impl RustyHandKernel {
         // Start extension health monitor background task
         {
             let kernel = Arc::clone(self);
-            tokio::spawn(async move {
+            let h = tokio::spawn(async move {
                 kernel.run_extension_health_loop().await;
             });
+            self.track_background(h.abort_handle());
         }
 
         // Cron scheduler tick loop — fires due jobs every 15 seconds
         {
             let kernel = Arc::clone(self);
-            tokio::spawn(async move {
+            let h = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
                 let mut persist_counter = 0u32;
                 interval.tick().await; // Skip first immediate tick
@@ -3209,6 +3216,7 @@ impl RustyHandKernel {
                     }
                 }
             });
+            self.track_background(h.abort_handle());
             if self.cron_scheduler.total_jobs() > 0 {
                 info!(
                     "Cron scheduler active with {} job(s)",
@@ -3437,6 +3445,13 @@ impl RustyHandKernel {
             });
     }
 
+    /// Track a background task's abort handle for graceful shutdown.
+    fn track_background(&self, handle: tokio::task::AbortHandle) {
+        if let Ok(mut handles) = self.background_handles.lock() {
+            handles.push(handle);
+        }
+    }
+
     /// Register a callback that fires when an autonomous agent (continuous/periodic)
     /// generates a response. Used by the channel bridge to push responses to Telegram.
     pub fn set_autonomous_response_callback(&self, cb: AutonomousResponseCallback) {
@@ -3473,6 +3488,17 @@ impl RustyHandKernel {
         }
 
         self.supervisor.shutdown();
+
+        // Abort background system tasks (cleanup loops, heartbeat, cron, etc.)
+        if let Ok(mut handles) = self.background_handles.lock() {
+            let count = handles.len();
+            if count > 0 {
+                info!("Aborting {count} background system task(s)");
+                for handle in handles.drain(..) {
+                    handle.abort();
+                }
+            }
+        }
 
         // Update agent states to Suspended in persistent storage (not delete)
         for entry in self.registry.list() {

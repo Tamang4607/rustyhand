@@ -3036,8 +3036,16 @@ impl KernelConfig {
             SearchProvider::DuckDuckGo | SearchProvider::Auto => {}
         }
 
-        // --- Production bounds validation ---
-        // Clamp dangerous zero/extreme values to safe defaults instead of crashing.
+        // --- Core config validation ---
+
+        // Validate api_listen is a parseable socket address
+        if self.api_listen.parse::<std::net::SocketAddr>().is_err() {
+            warnings.push(format!(
+                "api_listen '{}' is not a valid address (expected host:port like 127.0.0.1:4200)",
+                self.api_listen
+            ));
+        }
+
         warnings
     }
 

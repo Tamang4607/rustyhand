@@ -24,7 +24,12 @@ impl WebFetchEngine {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
             .build()
-            .unwrap_or_default();
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Failed to build HTTP client with custom timeout: {e}, using default"
+                );
+                reqwest::Client::new()
+            });
         Self {
             config,
             client,
@@ -60,12 +65,13 @@ impl WebFetchEngine {
 
         let status = resp.status();
 
-        // Check response size
+        // Check response size — early reject if Content-Length is known
+        let max_bytes = self.config.max_response_bytes;
         if let Some(len) = resp.content_length() {
-            if len > self.config.max_response_bytes as u64 {
+            if len > max_bytes as u64 {
                 return Err(format!(
                     "Response too large: {} bytes (max {})",
-                    len, self.config.max_response_bytes
+                    len, max_bytes
                 ));
             }
         }
@@ -77,10 +83,22 @@ impl WebFetchEngine {
             .unwrap_or("")
             .to_string();
 
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response body: {e}"))?;
+        // Read body with hard size limit (protects against chunked/streaming responses
+        // that omit Content-Length)
+        let mut bytes = Vec::new();
+        let mut stream = resp.bytes_stream();
+        use futures::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Failed to read response body: {e}"))?;
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > max_bytes {
+                return Err(format!(
+                    "Response body exceeded {} byte limit during streaming",
+                    max_bytes
+                ));
+            }
+        }
+        let body = String::from_utf8_lossy(&bytes).into_owned();
 
         // Step 4: Detect HTML and optionally convert to Markdown
         let processed = if self.config.readability && is_html(&content_type, &body) {

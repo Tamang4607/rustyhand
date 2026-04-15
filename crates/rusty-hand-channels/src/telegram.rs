@@ -107,7 +107,10 @@ impl TelegramAdapter {
             let resp = self.client.post(&url).json(&body).send().await?;
             let status = resp.status();
             if !status.is_success() {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 if body_text.contains("can't parse entities") {
                     // Fallback: retry without parse_mode (malformed markdown)
                     let fallback = serde_json::json!({
@@ -191,7 +194,10 @@ impl TelegramAdapter {
         if !resp.status().is_success() {
             // Ignore "message is not modified" errors (Telegram returns 400 for identical text).
             // Also retry without parse_mode if Markdown parsing fails (malformed markdown).
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             if body_text.contains("can't parse entities") {
                 // Fallback: send as plain text
                 let fallback_body = serde_json::json!({
@@ -317,7 +323,10 @@ impl TelegramAdapter {
         }
         let resp = self.client.post(&url).multipart(form).send().await?;
         if !resp.status().is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             warn!("Telegram sendDocument failed: {body_text}");
         }
         Ok(())
@@ -345,7 +354,10 @@ impl TelegramAdapter {
             }
             let resp = self.client.post(&url).json(&body).send().await?;
             if !resp.status().is_success() {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Telegram sendPhoto (URL) failed: {body_text}");
             }
         } else {
@@ -364,7 +376,10 @@ impl TelegramAdapter {
             }
             let resp = self.client.post(&url).multipart(form).send().await?;
             if !resp.status().is_success() {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Telegram sendPhoto (file) failed: {body_text}");
             }
         }
@@ -388,7 +403,10 @@ impl TelegramAdapter {
             .part("voice", file_part);
         let resp = self.client.post(&url).multipart(form).send().await?;
         if !resp.status().is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             warn!("Telegram sendVoice failed: {body_text}");
         }
         Ok(())
@@ -566,7 +584,10 @@ impl ChannelAdapter for TelegramAdapter {
                 }
 
                 if !status.is_success() {
-                    let body_text = resp.text().await.unwrap_or_default();
+                    let body_text = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                     warn!("Telegram getUpdates failed ({status}): {body_text}, retrying in {backoff:?}");
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(MAX_BACKOFF);

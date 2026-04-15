@@ -214,7 +214,10 @@ pub async fn run_pkce_flow(oauth: &OAuthTemplate, client_id: &str) -> ExtensionR
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
         return Err(ExtensionError::OAuth(format!(
             "Token exchange failed ({}): {}",
             status, body

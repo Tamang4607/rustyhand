@@ -105,7 +105,10 @@ impl WhatsAppAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 error!("WhatsApp API error {status}: {body}");
                 return Err(format!("WhatsApp API error {status}: {body}").into());
             }
@@ -153,7 +156,10 @@ impl WhatsAppAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             error!("WhatsApp gateway error {status}: {body}");
             return Err(format!("WhatsApp gateway error {status}: {body}").into());
         }

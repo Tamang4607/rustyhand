@@ -43,7 +43,10 @@ pub async fn generate_image(request: &ImageGenRequest) -> Result<ImageGenResult,
 
     if !response.status().is_success() {
         let status = response.status();
-        let error_body = response.text().await.unwrap_or_default();
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
         // SECURITY: don't include full error body which might contain key info
         let truncated = if error_body.len() > 500 {
             &error_body[..500]

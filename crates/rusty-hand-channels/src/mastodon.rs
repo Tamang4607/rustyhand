@@ -79,7 +79,10 @@ impl MastodonAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Mastodon authentication failed {status}: {body}").into());
         }
 
@@ -125,7 +128,10 @@ impl MastodonAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Mastodon post status error {status}: {resp_body}").into());
             }
 

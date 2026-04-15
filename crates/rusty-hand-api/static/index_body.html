@@ -33,9 +33,9 @@
         </div>
       </div>
       <div class="theme-switcher">
-        <button class="theme-opt" :class="{ active: themeMode === 'light' }" @click="setTheme('light')" title="Light"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
-        <button class="theme-opt" :class="{ active: themeMode === 'system' }" @click="setTheme('system')" title="System"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
-        <button class="theme-opt" :class="{ active: themeMode === 'dark' }" @click="setTheme('dark')" title="Dark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+        <button class="theme-opt" :class="{ active: themeMode === 'light' }" @click="setTheme('light')" title="Light" aria-label="Light theme"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+        <button class="theme-opt" :class="{ active: themeMode === 'system' }" @click="setTheme('system')" title="System" aria-label="System theme"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>
+        <button class="theme-opt" :class="{ active: themeMode === 'dark' }" @click="setTheme('dark')" title="Dark" aria-label="Dark theme"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       </div>
     </div>
 
@@ -158,36 +158,36 @@
 
       <!-- Navigation icon bar -->
       <div class="sidebar-nav-icons">
-        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'agents' }" @click="navigate('agents')" title="Chat" data-tip="Chat">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'agents' }" @click="navigate('agents')" title="Chat" aria-label="Chat" data-tip="Chat">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </button>
-        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'approvals' }" @click="navigate('approvals')" title="Approvals" data-tip="Approvals" style="position:relative">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          <span class="sidebar-nav-badge" x-show="$store.app.pendingApprovals > 0" x-text="$store.app.pendingApprovals"></span>
+        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'approvals' }" @click="navigate('approvals')" title="Approvals" aria-label="Approvals" data-tip="Approvals" style="position:relative">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+          <span class="sidebar-nav-badge" x-show="$store.app.pendingApprovals > 0" x-text="$store.app.pendingApprovals" aria-label="Pending approvals count"></span>
         </button>
-        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'automation' }" @click="navigate('automation')" title="Automation" data-tip="Automation">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'automation' }" @click="navigate('automation')" title="Automation" aria-label="Automation" data-tip="Automation">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         </button>
-        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'analytics' }" @click="navigate('analytics')" title="Analytics" data-tip="Analytics">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'analytics' }" @click="navigate('analytics')" title="Analytics" aria-label="Analytics" data-tip="Analytics">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
         </button>
-        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'settings' }" @click="navigate('settings')" title="Settings" data-tip="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg>
+        <button class="sidebar-nav-icon-btn" :class="{ active: page === 'settings' }" @click="navigate('settings')" title="Settings" aria-label="Settings" data-tip="Settings">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></svg>
         </button>
         <div style="position:relative" x-data="{ moreOpen: false }">
-          <button class="sidebar-nav-icon-btn" :class="{ active: ['workflows','channels','skills','knowledge'].indexOf(page) >= 0 }" @click="moreOpen = !moreOpen" title="More" data-tip="More">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          <button class="sidebar-nav-icon-btn" :class="{ active: ['workflows','channels','skills','knowledge'].indexOf(page) >= 0 }" @click="moreOpen = !moreOpen" title="More" aria-label="More pages" aria-haspopup="true" :aria-expanded="moreOpen" data-tip="More">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
-          <div class="sidebar-more-menu" x-show="moreOpen" @click.outside="moreOpen = false" x-transition>
-            <a class="sidebar-more-item" :class="{ active: page === 'workflows' }" @click="navigate('workflows'); moreOpen = false">Workflows</a>
-            <a class="sidebar-more-item" :class="{ active: page === 'channels' }" @click="navigate('channels'); moreOpen = false">Channels</a>
-            <a class="sidebar-more-item" :class="{ active: page === 'skills' }" @click="navigate('skills'); moreOpen = false">Skills</a>
-            <a class="sidebar-more-item" :class="{ active: page === 'knowledge' }" @click="navigate('knowledge'); moreOpen = false">Knowledge Graph</a>
+          <div class="sidebar-more-menu" role="menu" x-show="moreOpen" @click.outside="moreOpen = false" x-transition>
+            <a class="sidebar-more-item" role="menuitem" :class="{ active: page === 'workflows' }" @click="navigate('workflows'); moreOpen = false">Workflows</a>
+            <a class="sidebar-more-item" role="menuitem" :class="{ active: page === 'channels' }" @click="navigate('channels'); moreOpen = false">Channels</a>
+            <a class="sidebar-more-item" role="menuitem" :class="{ active: page === 'skills' }" @click="navigate('skills'); moreOpen = false">Skills</a>
+            <a class="sidebar-more-item" role="menuitem" :class="{ active: page === 'knowledge' }" @click="navigate('knowledge'); moreOpen = false">Knowledge Graph</a>
           </div>
         </div>
       </div>
     </div>
-    <div class="sidebar-toggle" @click="toggleSidebar()" x-text="sidebarCollapsed ? '\u276F' : '\u276E'"></div>
+    <div class="sidebar-toggle" role="button" tabindex="0" @click="toggleSidebar()" @keydown.enter="toggleSidebar()" x-text="sidebarCollapsed ? '\u276F' : '\u276E'" :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"></div>
   </nav>
 
   <div class="sidebar-overlay" @click="mobileMenuOpen = false"></div>

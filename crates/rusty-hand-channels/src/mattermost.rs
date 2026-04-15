@@ -74,7 +74,10 @@ impl MattermostAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Mattermost auth failed {status}: {body}").into());
         }
 
@@ -123,7 +126,10 @@ impl MattermostAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Mattermost sendMessage failed {status}: {resp_body}");
             }
         }
@@ -464,7 +470,10 @@ impl ChannelAdapter for MattermostAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Mattermost send_in_thread failed {status}: {resp_body}");
             }
         }

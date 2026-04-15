@@ -106,7 +106,10 @@ impl ViberAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Viber authentication failed {status}: {body}").into());
         }
 
@@ -146,7 +149,10 @@ impl ViberAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let resp_body = resp.text().await.unwrap_or_default();
+            let resp_body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Viber set_webhook failed {status}: {resp_body}").into());
         }
 
@@ -196,7 +202,10 @@ impl ViberAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Viber send_message error {status}: {resp_body}").into());
             }
 
@@ -403,7 +412,10 @@ impl ChannelAdapter for ViberAdapter {
 
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    let resp_body = resp.text().await.unwrap_or_default();
+                    let resp_body = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                     warn!("Viber image send error {status}: {resp_body}");
                 }
             }

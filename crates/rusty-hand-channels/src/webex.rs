@@ -138,7 +138,10 @@ impl WebexAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let resp_body = resp.text().await.unwrap_or_default();
+            let resp_body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Webex webhook registration failed {status}: {resp_body}").into());
         }
 
@@ -172,7 +175,10 @@ impl WebexAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Webex API error {status}: {resp_body}").into());
             }
         }
@@ -213,7 +219,10 @@ impl WebexAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Webex direct message error {status}: {resp_body}").into());
             }
         }

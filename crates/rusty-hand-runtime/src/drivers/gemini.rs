@@ -410,7 +410,10 @@ impl LlmDriver for GeminiDriver {
             }
 
             if !resp.status().is_success() {
-                let body = resp.text().await.unwrap_or_default();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 let message = serde_json::from_str::<GeminiErrorResponse>(&body)
                     .map(|e| e.error.message)
                     .unwrap_or(body);
@@ -493,7 +496,10 @@ impl LlmDriver for GeminiDriver {
             }
 
             if !resp.status().is_success() {
-                let body = resp.text().await.unwrap_or_default();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 let message = serde_json::from_str::<GeminiErrorResponse>(&body)
                     .map(|e| e.error.message)
                     .unwrap_or(body);
@@ -550,31 +556,53 @@ impl LlmDriver for GeminiDriver {
                                     GeminiPart::Text { text } => {
                                         if !text.is_empty() {
                                             text_content.push_str(text);
-                                            let _ = tx
+                                            if tx
                                                 .send(StreamEvent::TextDelta { text: text.clone() })
-                                                .await;
+                                                .await
+                                                .is_err()
+                                            {
+                                                tracing::warn!(
+                                                    "Stream receiver dropped, ending Gemini stream"
+                                                );
+                                                break;
+                                            }
                                         }
                                     }
                                     GeminiPart::FunctionCall { function_call } => {
                                         let id = format!("call_{}", uuid::Uuid::new_v4().simple());
-                                        let _ = tx
+                                        if tx
                                             .send(StreamEvent::ToolUseStart {
                                                 id: id.clone(),
                                                 name: function_call.name.clone(),
                                             })
-                                            .await;
+                                            .await
+                                            .is_err()
+                                        {
+                                            tracing::warn!(
+                                                "Stream receiver dropped during tool call"
+                                            );
+                                            break;
+                                        }
                                         let args_str = serde_json::to_string(&function_call.args)
                                             .unwrap_or_default();
-                                        let _ = tx
+                                        if tx
                                             .send(StreamEvent::ToolInputDelta { text: args_str })
-                                            .await;
-                                        let _ = tx
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                        if tx
                                             .send(StreamEvent::ToolUseEnd {
                                                 id,
                                                 name: function_call.name.clone(),
                                                 input: function_call.args.clone(),
                                             })
-                                            .await;
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
                                         fn_calls.push((
                                             function_call.name.clone(),
                                             function_call.args.clone(),
@@ -624,9 +652,13 @@ impl LlmDriver for GeminiDriver {
                 }
             };
 
-            let _ = tx
+            if tx
                 .send(StreamEvent::ContentComplete { stop_reason, usage })
-                .await;
+                .await
+                .is_err()
+            {
+                tracing::debug!("Stream receiver dropped before ContentComplete");
+            }
 
             return Ok(CompletionResponse {
                 content,

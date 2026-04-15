@@ -117,7 +117,10 @@ impl LineAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("LINE authentication failed {status}: {body}").into());
         }
 
@@ -180,7 +183,10 @@ impl LineAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("LINE push API error {status}: {resp_body}").into());
             }
         }
@@ -223,7 +229,10 @@ impl LineAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let resp_body = resp.text().await.unwrap_or_default();
+            let resp_body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("LINE reply API error {status}: {resp_body}").into());
         }
 
@@ -463,7 +472,10 @@ impl ChannelAdapter for LineAdapter {
 
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    let resp_body = resp.text().await.unwrap_or_default();
+                    let resp_body = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                     warn!("LINE image push error {status}: {resp_body}");
                 }
 

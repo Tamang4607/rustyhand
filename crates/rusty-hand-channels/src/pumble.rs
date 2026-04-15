@@ -106,7 +106,10 @@ impl PumbleAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Pumble API error {status}: {resp_body}").into());
             }
         }
@@ -342,7 +345,10 @@ impl ChannelAdapter for PumbleAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Pumble thread reply error {status}: {resp_body}").into());
             }
         }

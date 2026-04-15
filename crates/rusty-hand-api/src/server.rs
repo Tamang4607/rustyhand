@@ -70,10 +70,13 @@ pub async fn build_router(
     let cors = if state.kernel.config.api_key.is_empty() {
         // No auth → restrict CORS to localhost origins (include both 127.0.0.1 and localhost)
         let port = listen_addr.port();
-        let mut origins: Vec<axum::http::HeaderValue> = vec![
-            format!("http://{listen_addr}").parse().unwrap(),
-            format!("http://localhost:{port}").parse().unwrap(),
-        ];
+        let mut origins: Vec<axum::http::HeaderValue> = Vec::new();
+        if let Ok(v) = format!("http://{listen_addr}").parse() {
+            origins.push(v);
+        }
+        if let Ok(v) = format!("http://localhost:{port}").parse() {
+            origins.push(v);
+        }
         // Also allow common dev ports
         for p in [3000u16, 8080] {
             if p != port {
@@ -93,13 +96,20 @@ pub async fn build_router(
         // Auth enabled → restrict CORS to localhost + configured origins.
         // SECURITY: CorsLayer::permissive() is dangerous — any website could
         // make cross-origin requests. Restrict to known origins instead.
-        let mut origins: Vec<axum::http::HeaderValue> = vec![
-            format!("http://{listen_addr}").parse().unwrap(),
-            "http://localhost:4200".parse().unwrap(),
-            "http://127.0.0.1:4200".parse().unwrap(),
-            "http://localhost:8080".parse().unwrap(),
-            "http://127.0.0.1:8080".parse().unwrap(),
-        ];
+        let mut origins: Vec<axum::http::HeaderValue> = Vec::new();
+        if let Ok(v) = format!("http://{listen_addr}").parse() {
+            origins.push(v);
+        }
+        for static_origin in [
+            "http://localhost:4200",
+            "http://127.0.0.1:4200",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+        ] {
+            if let Ok(v) = static_origin.parse() {
+                origins.push(v);
+            }
+        }
         // Add the actual listen address variants
         if listen_addr.port() != 4200 && listen_addr.port() != 8080 {
             if let Ok(v) = format!("http://localhost:{}", listen_addr.port()).parse() {

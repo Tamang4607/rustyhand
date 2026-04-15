@@ -152,7 +152,10 @@ impl EmbeddingDriver for OpenAIEmbeddingDriver {
         let status = resp.status().as_u16();
 
         if status != 200 {
-            let body_text = resp.text().await.unwrap_or_default();
+            let body_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(EmbeddingError::Api {
                 status,
                 message: body_text,

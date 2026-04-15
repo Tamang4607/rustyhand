@@ -77,7 +77,10 @@ impl MessengerAdapter {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
             return Err(format!("Messenger authentication failed {status}: {body}").into());
         }
 
@@ -115,7 +118,10 @@ impl MessengerAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let resp_body = resp.text().await.unwrap_or_default();
+                let resp_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("Messenger Send API error {status}: {resp_body}").into());
             }
         }
@@ -396,7 +402,10 @@ impl ChannelAdapter for MessengerAdapter {
                 let resp = self.client.post(&api_url).json(&body).send().await?;
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    let resp_body = resp.text().await.unwrap_or_default();
+                    let resp_body = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                     warn!("Messenger image send error {status}: {resp_body}");
                 }
 

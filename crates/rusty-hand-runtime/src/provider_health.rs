@@ -185,7 +185,10 @@ pub async fn probe_model(
         Ok(latency)
     } else {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
         Err(format!("HTTP {status}: {}", &body[..body.len().min(200)]))
     }
 }

@@ -105,7 +105,10 @@ impl DiscordAdapter {
                 .await?;
 
             if !resp.status().is_success() {
-                let body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 warn!("Discord sendMessage failed: {body_text}");
             }
         }

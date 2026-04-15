@@ -323,7 +323,10 @@ impl LlmDriver for OpenAIDriver {
             }
 
             if !resp.status().is_success() {
-                let body = resp.text().await.unwrap_or_default();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
 
                 // Groq "tool_use_failed": model generated tool call in XML format.
                 // Parse the failed_generation and convert to a proper tool call response.
@@ -619,7 +622,10 @@ impl LlmDriver for OpenAIDriver {
             }
 
             if !resp.status().is_success() {
-                let body = resp.text().await.unwrap_or_default();
+                let body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
 
                 // Groq "tool_use_failed": parse and recover (streaming path)
                 if status == 400 && body.contains("tool_use_failed") {

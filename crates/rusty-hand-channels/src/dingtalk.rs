@@ -293,7 +293,10 @@ impl ChannelAdapter for DingTalkAdapter {
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                let err_body = resp.text().await.unwrap_or_default();
+                let err_body = resp
+                    .text()
+                    .await
+                    .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
                 return Err(format!("DingTalk API error {status}: {err_body}").into());
             }
 
