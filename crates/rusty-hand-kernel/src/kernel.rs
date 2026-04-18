@@ -3254,17 +3254,12 @@ impl RustyHandKernel {
                         break;
                     }
 
-                    // Check shutdown state AFTER claim but BEFORE spawn — narrows
-                    // the window where a job starts during shutdown. Jobs already
-                    // spawned will still run to completion.
-                    if kernel.supervisor.is_shutting_down() {
-                        break;
-                    }
                     let due = kernel.cron_scheduler.claim_due_jobs();
                     for job in due {
-                        // Double-check inside the loop in case shutdown began after claim.
+                        // If shutdown began between claim and spawn, mark the job
+                        // as a transient failure so it's re-queued on next boot
+                        // rather than left claimed (next_run = None) forever.
                         if kernel.supervisor.is_shutting_down() {
-                            // Re-claim this job by clearing its run state so it runs next boot.
                             kernel.cron_scheduler.record_failure(
                                 job.id,
                                 "aborted due to shutdown",
@@ -3277,7 +3272,10 @@ impl RustyHandKernel {
                         let job_name = job.name.clone();
                         // AssertUnwindSafe: we only touch owned data across the catch boundary;
                         // on panic we just need to record failure and let the task end.
-                        let h = tokio::spawn(async move {
+                        // NOTE: We deliberately don't track the spawn handle — doing so would
+                        // leak a handle per cron tick (they're never pruned). In-flight jobs
+                        // will be aborted when the tokio runtime drops at process exit.
+                        tokio::spawn(async move {
                             use futures::FutureExt;
                             let fut =
                                 std::panic::AssertUnwindSafe(job_kernel.execute_cron_job(&job));
@@ -3306,8 +3304,6 @@ impl RustyHandKernel {
                                 }
                             }
                         });
-                        // Track the job handle so shutdown can abort in-flight jobs.
-                        kernel.track_background(h.abort_handle());
                     }
 
                     // Persist every ~5 minutes (20 ticks * 15s)

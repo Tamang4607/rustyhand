@@ -472,6 +472,44 @@ mod tests {
     }
 
     #[test]
+    fn workflow_run_empty_id_rejected() {
+        let mut job = valid_job();
+        job.action = CronAction::WorkflowRun {
+            workflow_id: String::new(),
+            input: "hello".into(),
+            timeout_secs: None,
+        };
+        let err = job.validate(0).unwrap_err();
+        assert!(err.contains("empty"), "{err}");
+    }
+
+    #[test]
+    fn workflow_run_invalid_uuid_rejected() {
+        let mut job = valid_job();
+        job.action = CronAction::WorkflowRun {
+            workflow_id: "not-a-uuid".into(),
+            input: "hello".into(),
+            timeout_secs: None,
+        };
+        let err = job.validate(0).unwrap_err();
+        assert!(
+            err.contains("valid UUID"),
+            "expected UUID error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn workflow_run_valid_uuid_ok() {
+        let mut job = valid_job();
+        job.action = CronAction::WorkflowRun {
+            workflow_id: uuid::Uuid::new_v4().to_string(),
+            input: "hello".into(),
+            timeout_secs: Some(60),
+        };
+        assert!(job.validate(0).is_ok());
+    }
+
+    #[test]
     fn name_128_chars_ok() {
         let mut job = valid_job();
         job.name = "a".repeat(128);

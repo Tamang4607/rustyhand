@@ -376,4 +376,58 @@ mod tests {
         registry.remove(id).unwrap();
         assert!(registry.get(id).is_none());
     }
+
+    #[test]
+    fn test_update_name_success() {
+        let registry = AgentRegistry::new();
+        let entry = test_entry("old-name");
+        let id = entry.id;
+        registry.register(entry).unwrap();
+        registry.update_name(id, "new-name".to_string()).unwrap();
+        assert!(registry.find_by_name("new-name").is_some());
+        assert!(registry.find_by_name("old-name").is_none());
+    }
+
+    #[test]
+    fn test_update_name_rejects_duplicate() {
+        let registry = AgentRegistry::new();
+        let a = test_entry("alice");
+        let b = test_entry("bob");
+        let b_id = b.id;
+        registry.register(a).unwrap();
+        registry.register(b).unwrap();
+        // Renaming bob to alice should fail — alice already exists
+        let result = registry.update_name(b_id, "alice".to_string());
+        assert!(matches!(result, Err(RustyHandError::AgentAlreadyExists(_))));
+        // Bob's name should be unchanged
+        assert_eq!(registry.get(b_id).unwrap().name, "bob");
+        // Alice should still be findable
+        assert!(registry.find_by_name("alice").is_some());
+    }
+
+    #[test]
+    fn test_update_name_idempotent_self_rename() {
+        let registry = AgentRegistry::new();
+        let entry = test_entry("same-name");
+        let id = entry.id;
+        registry.register(entry).unwrap();
+        // Renaming to the same name is a no-op success
+        registry.update_name(id, "same-name".to_string()).unwrap();
+        assert!(registry.find_by_name("same-name").is_some());
+    }
+
+    #[test]
+    fn test_update_name_missing_agent_rolls_back() {
+        let registry = AgentRegistry::new();
+        let fake_id = AgentId::new();
+        let result = registry.update_name(fake_id, "ghost".to_string());
+        assert!(matches!(result, Err(RustyHandError::AgentNotFound(_))));
+        // The "ghost" name should NOT be reserved in the index (rollback)
+        assert!(registry.find_by_name("ghost").is_none());
+        // Now a real agent can claim that name
+        let mut entry = test_entry("ghost");
+        entry.id = AgentId::new();
+        registry.register(entry).unwrap();
+        assert!(registry.find_by_name("ghost").is_some());
+    }
 }
