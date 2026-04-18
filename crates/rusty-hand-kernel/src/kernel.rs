@@ -3254,16 +3254,33 @@ impl RustyHandKernel {
                         break;
                     }
 
+                    // Check shutdown state AFTER claim but BEFORE spawn — narrows
+                    // the window where a job starts during shutdown. Jobs already
+                    // spawned will still run to completion.
+                    if kernel.supervisor.is_shutting_down() {
+                        break;
+                    }
                     let due = kernel.cron_scheduler.claim_due_jobs();
                     for job in due {
-                        let kernel = Arc::clone(&kernel);
+                        // Double-check inside the loop in case shutdown began after claim.
+                        if kernel.supervisor.is_shutting_down() {
+                            // Re-claim this job by clearing its run state so it runs next boot.
+                            kernel.cron_scheduler.record_failure(
+                                job.id,
+                                "aborted due to shutdown",
+                                true, // transient — retry on next boot
+                            );
+                            continue;
+                        }
+                        let job_kernel = Arc::clone(&kernel);
                         let job_id = job.id;
                         let job_name = job.name.clone();
                         // AssertUnwindSafe: we only touch owned data across the catch boundary;
                         // on panic we just need to record failure and let the task end.
-                        tokio::spawn(async move {
+                        let h = tokio::spawn(async move {
                             use futures::FutureExt;
-                            let fut = std::panic::AssertUnwindSafe(kernel.execute_cron_job(&job));
+                            let fut =
+                                std::panic::AssertUnwindSafe(job_kernel.execute_cron_job(&job));
                             match fut.catch_unwind().await {
                                 Ok(Ok(_)) => {}
                                 Ok(Err(e)) => {
@@ -3281,7 +3298,7 @@ impl RustyHandKernel {
                                         job = %job_name,
                                         "Cron job panicked during execution — recording failure"
                                     );
-                                    kernel.cron_scheduler.record_failure(
+                                    job_kernel.cron_scheduler.record_failure(
                                         job_id,
                                         "panic during execution",
                                         false,
@@ -3289,6 +3306,8 @@ impl RustyHandKernel {
                                 }
                             }
                         });
+                        // Track the job handle so shutdown can abort in-flight jobs.
+                        kernel.track_background(h.abort_handle());
                     }
 
                     // Persist every ~5 minutes (20 ticks * 15s)

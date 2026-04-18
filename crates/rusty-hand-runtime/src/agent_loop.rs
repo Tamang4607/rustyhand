@@ -302,8 +302,12 @@ pub async fn run_agent_loop(
         let mut response =
             call_with_retry(&*driver, request, Some(provider_name), None, None).await?;
 
-        total_usage.input_tokens += response.usage.input_tokens;
-        total_usage.output_tokens += response.usage.output_tokens;
+        total_usage.input_tokens = total_usage
+            .input_tokens
+            .saturating_add(response.usage.input_tokens);
+        total_usage.output_tokens = total_usage
+            .output_tokens
+            .saturating_add(response.usage.output_tokens);
 
         // Recover tool calls output as text by models that don't use the tool_calls API field
         // (e.g. Groq/Llama, DeepSeek emit `<function=name>{json}</function>` in text)
@@ -1213,8 +1217,12 @@ pub async fn run_agent_loop_streaming(
         )
         .await?;
 
-        total_usage.input_tokens += response.usage.input_tokens;
-        total_usage.output_tokens += response.usage.output_tokens;
+        total_usage.input_tokens = total_usage
+            .input_tokens
+            .saturating_add(response.usage.input_tokens);
+        total_usage.output_tokens = total_usage
+            .output_tokens
+            .saturating_add(response.usage.output_tokens);
 
         // Recover tool calls output as text (streaming path)
         if matches!(

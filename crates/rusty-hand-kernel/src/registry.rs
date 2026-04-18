@@ -211,22 +211,43 @@ impl AgentRegistry {
     }
 
     /// Update an agent's name (also updates the name index).
+    ///
+    /// Uses atomic `entry()` API on the name index to prevent TOCTOU races
+    /// where two concurrent renames to the same new_name could both succeed
+    /// and produce a name collision.
     pub fn update_name(&self, id: AgentId, new_name: String) -> RustyHandResult<()> {
-        if self.name_index.contains_key(&new_name) {
-            return Err(RustyHandError::AgentAlreadyExists(new_name));
+        // Atomically reserve the new name — fails if another thread
+        // already holds it (for a different agent).
+        match self.name_index.entry(new_name.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(existing) => {
+                // Name already in use. If it's the same agent, that's a no-op (idempotent rename).
+                if *existing.get() == id {
+                    return Ok(());
+                }
+                return Err(RustyHandError::AgentAlreadyExists(new_name));
+            }
+            dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                vacant.insert(id);
+            }
         }
-        let mut entry = self
-            .agents
-            .get_mut(&id)
-            .ok_or_else(|| RustyHandError::AgentNotFound(id.to_string()))?;
+
+        // Now update the agent entry. If it doesn't exist, roll back the index.
+        let mut entry = match self.agents.get_mut(&id) {
+            Some(e) => e,
+            None => {
+                self.name_index.remove(&new_name);
+                return Err(RustyHandError::AgentNotFound(id.to_string()));
+            }
+        };
         let old_name = entry.name.clone();
         entry.name = new_name.clone();
         entry.manifest.name = new_name.clone();
         entry.last_active = chrono::Utc::now();
-        // Update name index
         drop(entry);
-        self.name_index.remove(&old_name);
-        self.name_index.insert(new_name, id);
+        // Remove the old name mapping after the new one is in place.
+        if old_name != new_name {
+            self.name_index.remove(&old_name);
+        }
         Ok(())
     }
 

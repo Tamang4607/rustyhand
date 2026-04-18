@@ -316,6 +316,12 @@ impl CronJob {
                 if workflow_id.is_empty() {
                     return Err("workflow_id must not be empty".into());
                 }
+                if uuid::Uuid::parse_str(workflow_id).is_err() {
+                    return Err(format!(
+                        "workflow_id must be a valid UUID, got '{}'",
+                        workflow_id
+                    ));
+                }
                 if let Some(t) = timeout_secs {
                     if *t < MIN_TIMEOUT_SECS {
                         return Err(format!(

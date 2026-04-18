@@ -334,7 +334,19 @@ pub async fn import_agents(
     };
 
     let mut imported = 0u32;
+    let mut skipped = 0u32;
     let mut errors = Vec::new();
+
+    // Snapshot existing agent names once to avoid repeated registry scans.
+    let existing_names: std::collections::HashSet<String> = state
+        .kernel
+        .registry
+        .list()
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    // Track names imported in this batch so duplicate entries in the same file are skipped.
+    let mut seen_in_batch: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for agent_json in agents {
         let name = agent_json["name"].as_str().unwrap_or("imported-agent");
@@ -347,6 +359,13 @@ pub async fn import_agents(
         let system_prompt = agent_json["model"]["system_prompt"].as_str().unwrap_or("");
         let group = agent_json["group"].as_str().unwrap_or("");
         let description = agent_json["description"].as_str().unwrap_or("");
+
+        // Deduplicate: skip if an agent with this name already exists or was just imported.
+        if existing_names.contains(name) || !seen_in_batch.insert(name.to_string()) {
+            skipped += 1;
+            errors.push(format!("Skipped '{}' — name already exists", name));
+            continue;
+        }
 
         #[allow(clippy::field_reassign_with_default)]
         let manifest = {
@@ -375,6 +394,7 @@ pub async fn import_agents(
         StatusCode::OK,
         Json(serde_json::json!({
             "imported": imported,
+            "skipped": skipped,
             "errors": errors,
             "total_in_file": agents.len(),
         })),
