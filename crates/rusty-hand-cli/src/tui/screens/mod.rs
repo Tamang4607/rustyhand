@@ -1,3 +1,8 @@
+// TUI key-event handlers idiomatically use `match key.code { KeyCode::X => if ... }`
+// for readability — the guard form (`KeyCode::X if cond => ...`) would scatter the
+// condition across many arms and obscure the control flow.
+#![allow(clippy::collapsible_match)]
+
 pub mod agents;
 pub mod audit;
 pub mod channels;

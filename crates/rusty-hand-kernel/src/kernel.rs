@@ -2808,7 +2808,7 @@ impl RustyHandKernel {
         let mut bindings = self.bindings.lock().unwrap_or_else(|e| e.into_inner());
         bindings.push(binding);
         // Sort by specificity descending
-        bindings.sort_by(|a, b| b.match_rule.specificity().cmp(&a.match_rule.specificity()));
+        bindings.sort_by_key(|b| std::cmp::Reverse(b.match_rule.specificity()));
     }
 
     /// Remove a binding by index, returns the removed binding if valid.
