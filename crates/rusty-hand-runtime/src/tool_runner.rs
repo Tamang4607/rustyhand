@@ -302,6 +302,10 @@ pub async fn execute_tool(
         "memory_store" => tool_memory_store(input, kernel),
         "memory_recall" => tool_memory_recall(input, kernel),
 
+        // Skill installation — privileged. Only callable by agents with
+        // the `skill_install` capability (e.g. capability-builder).
+        "skill_install" => tool_skill_install(input, skill_registry).await,
+
         // Document RAG tools
         "doc_ingest" => tool_doc_ingest(input, kernel, caller_agent_id).await,
         "doc_search" => tool_doc_search(input, kernel, caller_agent_id).await,
@@ -706,6 +710,38 @@ pub fn builtin_tool_definitions() -> Vec<ToolDefinition> {
                     "key": { "type": "string", "description": "The storage key to recall" }
                 },
                 "required": ["key"]
+            }),
+        },
+        ToolDefinition {
+            name: "skill_install".to_string(),
+            description: "PRIVILEGED: install a new Python or JavaScript skill into the global skills directory. Use this to extend the agent system with new capabilities at runtime. The new skill becomes available after the next hot-reload tick. Refuses to overwrite hand-curated skills.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Skill identifier (lowercase letters, digits, underscores; must start with letter; max 64 chars). Becomes the directory and module name."
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["python", "javascript"],
+                        "description": "Source language for the skill."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "One-line human description of what the skill does."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full source code of the skill. Must define a `run(input: dict) -> dict` function. Max 256 KB."
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "If true, replace an existing skill (only if it was previously created by skill_install). Default false.",
+                        "default": false
+                    }
+                },
+                "required": ["name", "language", "description", "content"]
             }),
         },
         // --- Document RAG tools ---
@@ -1402,6 +1438,199 @@ async fn tool_apply_patch(
             result.errors.join("; ")
         ))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Skill install (privileged — lets capability-builder agent install new skills)
+// ---------------------------------------------------------------------------
+
+/// Maximum size of a skill source file (256 KB).
+const MAX_SKILL_CONTENT_BYTES: usize = 256 * 1024;
+
+/// Install a new Python or JavaScript skill into the global skills directory.
+///
+/// SECURITY:
+/// - Name must match `^[a-z][a-z0-9_]{0,63}$` (no path traversal possible)
+/// - Language must be `python` or `javascript`
+/// - Content size capped at 256 KB
+/// - Refuses to overwrite an existing skill unless `overwrite = true` AND the
+///   existing skill was also created by `skill_install` (has a marker file).
+/// - Frozen registry (Stable mode) blocks all installs.
+///
+/// Caller capability: agent must have `skill_install` in its tools list.
+///
+/// Input JSON:
+/// ```json
+/// {
+///   "name": "haversine",
+///   "language": "python",       // or "javascript"
+///   "description": "Distance between two GPS coordinates",
+///   "content": "def run(input):\n    ...",
+///   "overwrite": false           // default false
+/// }
+/// ```
+async fn tool_skill_install(
+    input: &serde_json::Value,
+    skill_registry: Option<&SkillRegistry>,
+) -> Result<String, String> {
+    let registry = skill_registry.ok_or("Skill registry unavailable in this context")?;
+    if registry.is_frozen() {
+        return Err(
+            "Skill registry is frozen (Stable mode) — new installs are blocked.".to_string(),
+        );
+    }
+
+    // --- Parse + validate input -----------------------------------------
+    let name = input["name"]
+        .as_str()
+        .ok_or("Missing 'name' parameter (string)")?
+        .trim();
+    if name.is_empty() {
+        return Err("'name' must not be empty".to_string());
+    }
+    // Strict regex on the name guarantees the path stays inside skills_dir
+    // and prevents traversal via "../" or absolute paths.
+    if name.len() > 64
+        || !name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(format!(
+            "Invalid skill name '{name}': must match ^[a-z][a-z0-9_]{{0,63}}$"
+        ));
+    }
+
+    let language = input["language"]
+        .as_str()
+        .ok_or("Missing 'language' parameter (python|javascript)")?;
+    let extension = match language {
+        "python" | "py" => "py",
+        "javascript" | "js" => "js",
+        other => {
+            return Err(format!(
+                "Unsupported language '{other}' (allowed: python, javascript)"
+            ));
+        }
+    };
+
+    let description = input["description"].as_str().unwrap_or("").trim();
+
+    let content = input["content"]
+        .as_str()
+        .ok_or("Missing 'content' parameter (string)")?;
+    if content.is_empty() {
+        return Err("'content' must not be empty".to_string());
+    }
+    if content.len() > MAX_SKILL_CONTENT_BYTES {
+        return Err(format!(
+            "Skill content too large ({} bytes, max {})",
+            content.len(),
+            MAX_SKILL_CONTENT_BYTES
+        ));
+    }
+
+    let overwrite = input["overwrite"].as_bool().unwrap_or(false);
+
+    // --- Compute paths --------------------------------------------------
+    let skills_dir = registry.skills_dir();
+    let skill_dir = skills_dir.join(name);
+    let marker_file = skill_dir.join(".rustyhand_skill_install");
+
+    // --- Check existing skill -------------------------------------------
+    if skill_dir.exists() {
+        if !overwrite {
+            return Err(format!(
+                "Skill '{name}' already exists. Set overwrite=true to replace."
+            ));
+        }
+        // Refuse to overwrite a hand-curated skill — only ones we created ourselves
+        // (marked by .rustyhand_skill_install file).
+        if !marker_file.exists() {
+            return Err(format!(
+                "Skill '{name}' exists but was not created by skill_install — refusing to overwrite a hand-curated skill"
+            ));
+        }
+    }
+
+    // --- Write files ----------------------------------------------------
+    // We write a minimal skill.toml + the source file. Hot-reload will
+    // pick it up on the next registry refresh.
+    tokio::fs::create_dir_all(&skill_dir)
+        .await
+        .map_err(|e| format!("Failed to create skill directory: {e}"))?;
+
+    let source_path = skill_dir.join(format!("{name}.{extension}"));
+    tokio::fs::write(&source_path, content)
+        .await
+        .map_err(|e| format!("Failed to write skill source: {e}"))?;
+
+    let manifest_toml = format!(
+        r#"# Auto-generated by skill_install tool. Safe to delete this skill via
+# `rm -rf {skill_dir}` — RustyHand will detect removal on next reload.
+
+[skill]
+name = "{name}"
+version = "0.1.0"
+description = {description_quoted}
+author = "rustyhand:capability-builder"
+tags = ["auto-installed"]
+
+[runtime]
+kind = "subprocess"
+language = "{language}"
+entrypoint = "{name}.{extension}"
+
+[source]
+created_by = "skill_install"
+"#,
+        skill_dir = skill_dir.display(),
+        description_quoted = toml_quote_string(description),
+    );
+    tokio::fs::write(skill_dir.join("skill.toml"), manifest_toml)
+        .await
+        .map_err(|e| format!("Failed to write skill.toml: {e}"))?;
+
+    // Marker so future overwrite calls can verify provenance.
+    tokio::fs::write(&marker_file, b"1")
+        .await
+        .map_err(|e| format!("Failed to write marker: {e}"))?;
+
+    // --- Compute SHA-256 of installed source for audit trail ------------
+    let hash = sha256_hex(content.as_bytes());
+
+    Ok(format!(
+        "Installed skill '{name}' ({extension}, {bytes} bytes, sha256:{hash_short}) at {path}. Run `rustyhand skills reload` or wait for the next hot-reload tick.",
+        bytes = content.len(),
+        hash_short = &hash[..16],
+        path = source_path.display(),
+    ))
+}
+
+/// Quote a string for safe inclusion in a TOML basic-string field.
+fn toml_quote_string(s: &str) -> String {
+    let escaped: String = s
+        .chars()
+        .flat_map(|c| match c {
+            '"' => vec!['\\', '"'],
+            '\\' => vec!['\\', '\\'],
+            '\n' => vec!['\\', 'n'],
+            '\r' => vec!['\\', 'r'],
+            '\t' => vec!['\\', 't'],
+            c if (c as u32) < 0x20 => format!("\\u{:04X}", c as u32).chars().collect(),
+            c => vec![c],
+        })
+        .collect();
+    format!("\"{escaped}\"")
+}
+
+/// SHA-256 hex digest helper (no extra deps — reuse what's in workspace).
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+    result.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -3330,6 +3559,253 @@ async fn tool_canvas_present(
 mod tests {
     use super::*;
 
+    // ─── skill_install tests ────────────────────────────────────────────
+
+    fn make_test_registry(tmp: &std::path::Path) -> SkillRegistry {
+        std::fs::create_dir_all(tmp).unwrap();
+        SkillRegistry::new(tmp.to_path_buf())
+    }
+
+    #[tokio::test]
+    async fn skill_install_happy_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        let result = tool_skill_install(
+            &serde_json::json!({
+                "name": "haversine",
+                "language": "python",
+                "description": "Distance between coords",
+                "content": "def run(x):\n    return {'ok': True}\n"
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        assert!(result.contains("haversine"));
+        // Files exist
+        let skill_dir = tmp.path().join("haversine");
+        assert!(skill_dir.join("haversine.py").exists());
+        assert!(skill_dir.join("skill.toml").exists());
+        assert!(skill_dir.join(".rustyhand_skill_install").exists());
+        // Manifest is valid TOML
+        let manifest = std::fs::read_to_string(skill_dir.join("skill.toml")).unwrap();
+        assert!(manifest.contains("name = \"haversine\""));
+        assert!(manifest.contains("Distance between coords"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_rejects_path_traversal_via_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        for bad_name in &["../etc", "foo/bar", ".hidden", "FOO", "1foo", "a-b", ""] {
+            let err = tool_skill_install(
+                &serde_json::json!({
+                    "name": bad_name,
+                    "language": "python",
+                    "content": "def run(x):\n    return {}",
+                    "description": "x"
+                }),
+                Some(&registry),
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                err.contains("Invalid skill name") || err.contains("must not be empty"),
+                "name '{bad_name}' should have been rejected, got: {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_install_rejects_unsupported_language() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        let err = tool_skill_install(
+            &serde_json::json!({
+                "name": "foo",
+                "language": "ruby",
+                "content": "def run; end",
+                "description": ""
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("Unsupported language"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_rejects_oversized_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        let big = "x".repeat(MAX_SKILL_CONTENT_BYTES + 1);
+        let err = tool_skill_install(
+            &serde_json::json!({
+                "name": "big",
+                "language": "python",
+                "content": big,
+                "description": ""
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("too large"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_refuses_to_overwrite_without_flag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        // First install
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "dup",
+                "language": "python",
+                "content": "def run(x): return {}",
+                "description": ""
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        // Second install without overwrite — must fail
+        let err = tool_skill_install(
+            &serde_json::json!({
+                "name": "dup",
+                "language": "python",
+                "content": "def run(x): return {'updated': True}",
+                "description": ""
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_refuses_to_overwrite_hand_curated_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        // Simulate a hand-curated skill — directory exists, no marker file.
+        let hand_dir = tmp.path().join("handmade");
+        std::fs::create_dir_all(&hand_dir).unwrap();
+        std::fs::write(hand_dir.join("skill.toml"), "[skill]\nname=\"handmade\"\n").unwrap();
+        // Try to overwrite with overwrite=true — must still fail (no marker).
+        let err = tool_skill_install(
+            &serde_json::json!({
+                "name": "handmade",
+                "language": "python",
+                "content": "def run(x): return {}",
+                "description": "",
+                "overwrite": true
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.contains("hand-curated"),
+            "expected hand-curated guard, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn skill_install_overwrite_works_for_self_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "selfown",
+                "language": "python",
+                "content": "v1",
+                "description": ""
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        // Now overwrite — works because marker exists.
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "selfown",
+                "language": "python",
+                "content": "v2_updated",
+                "description": "",
+                "overwrite": true
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        let content =
+            std::fs::read_to_string(tmp.path().join("selfown").join("selfown.py")).unwrap();
+        assert_eq!(content, "v2_updated");
+    }
+
+    #[tokio::test]
+    async fn skill_install_no_registry_returns_error() {
+        let err = tool_skill_install(
+            &serde_json::json!({
+                "name": "x",
+                "language": "python",
+                "content": "x",
+                "description": ""
+            }),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("registry unavailable"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_quotes_description_with_special_chars() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "tricky",
+                "language": "python",
+                "content": "x",
+                "description": "Has \"quotes\" and \\backslash and\nnewline"
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        // Manifest must escape special chars correctly — verify the raw output.
+        let manifest_str =
+            std::fs::read_to_string(tmp.path().join("tricky").join("skill.toml")).unwrap();
+        // Quotes escaped as \"
+        assert!(manifest_str.contains(r#"\""#));
+        // Backslash escaped as \\
+        assert!(manifest_str.contains(r"\\"));
+        // Newline escaped as \n (not raw 0x0A inside the description value)
+        assert!(manifest_str.contains(r"\n"));
+    }
+
+    #[tokio::test]
+    async fn skill_install_javascript_works() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "jsskill",
+                "language": "javascript",
+                "content": "function run(x) { return {ok: true}; }",
+                "description": "JS skill"
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        assert!(tmp.path().join("jsskill").join("jsskill.js").exists());
+    }
+
+    // ─── existing tests below ───────────────────────────────────────────
+
     #[test]
     fn test_builtin_tool_definitions() {
         let tools = builtin_tool_definitions();
@@ -3348,6 +3824,7 @@ mod tests {
         assert!(names.contains(&"agent_kill"));
         assert!(names.contains(&"memory_store"));
         assert!(names.contains(&"memory_recall"));
+        assert!(names.contains(&"skill_install"));
         // 6 collaboration tools
         assert!(names.contains(&"agent_find"));
         assert!(names.contains(&"task_post"));

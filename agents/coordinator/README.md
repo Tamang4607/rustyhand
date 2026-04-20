@@ -75,13 +75,21 @@ self-extending assistant.
 - Every incident Diagnostic analyses is saved to
   `memory.incidents.<timestamp>` — recurring patterns get flagged.
 
+## What it CAN do autonomously
+
+- **Install new skills end-to-end** via the `skill_install` privileged tool.
+  Capability Builder writes Python/JS code, the kernel atomically writes
+  it to `~/.rustyhand/skills/<name>/` with a generated `skill.toml` and
+  the next hot-reload tick makes it usable. Strict guards: name regex
+  `^[a-z][a-z0-9_]{0,63}$` (no path traversal possible), 256 KB content
+  cap, refuses to overwrite hand-curated skills (only ones it created
+  itself can be overwritten with `overwrite=true`).
+- **Suggest MCP servers** for things outside skill scope.
+- **Test skills before reporting success** via shell_exec python3 in its
+  own workspace.
+
 ## What it CANNOT do (honest limits)
 
-- **Auto-install new skills** — RustyHand sandboxes file_write to each agent's
-  workspace. Capability Builder writes a draft skill to its own workspace
-  (`~/.rustyhand/workspaces/capability-builder-XXX/proposed_skills/`) and
-  tells you the `cp` command to install it. Hot-reload picks it up after
-  manual copy. (Future: a `skill_install` Rust tool would close this gap.)
 - **Modify Rust source code** — for new built-in tools / channel adapters /
   LLM drivers, Capability Builder produces a SPEC and pings you on Telegram.
 - **Solve CAPTCHAs** — needs an external service (CapSolver) wired in.

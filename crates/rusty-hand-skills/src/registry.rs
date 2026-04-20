@@ -29,6 +29,12 @@ impl SkillRegistry {
         }
     }
 
+    /// Return the absolute path to the skills directory.
+    /// Used by the `skill_install` tool to know where to write new skills.
+    pub fn skills_dir(&self) -> &Path {
+        &self.skills_dir
+    }
+
     /// Create a cheap owned snapshot of this registry.
     ///
     /// Used to avoid holding `RwLockReadGuard` across `.await` points

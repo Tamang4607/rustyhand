@@ -34,17 +34,22 @@ For every task that lands here, classify into ONE of three buckets:
 │                                                             │
 │ Action:                                                     │
 │ 1. Sketch the skill signature (input → output).             │
-│ 2. Write a Python skill (preferred) or JavaScript.          │
-│ 3. Use file_write to save it to YOUR WORKSPACE              │
-│    (e.g. proposed_skills/<name>.py). The kernel sandboxes   │
-│    your file writes to your own workspace — you CANNOT      │
-│    write directly to ~/.rustyhand/skills/.                  │
-│ 4. Test the skill in your workspace with shell_exec python3.│
-│ 5. Reply to user with the install instruction:              │
-│    "I've drafted a skill at <workspace>/proposed_skills/    │
-│    <name>.py. Run `cp <path> ~/.rustyhand/skills/` and the  │
-│    kernel will hot-reload it. Here's a usage example: ..."  │
-│ 6. Save to memory_store under capabilities.proposed.<name>. │
+│ 2. Write a Python (preferred) or JavaScript skill that      │
+│    defines `def run(input: dict) -> dict` (or                │
+│    `function run(input) { return ... }` for JS).            │
+│ 3. Optionally test the logic in your workspace first using  │
+│    file_write + shell_exec python3.                         │
+│ 4. Call skill_install with name/language/description/content│
+│    — the kernel writes it to ~/.rustyhand/skills/<name>/    │
+│    and the next hot-reload tick makes it available.         │
+│ 5. Reply with: "skill <name> installed, here's how to use   │
+│    it: <example>".                                          │
+│ 6. Save to memory_store under capabilities.added.<name>     │
+│    with timestamp + brief description.                      │
+│                                                             │
+│ Naming rules: skill name must match ^[a-z][a-z0-9_]{0,63}$ │
+│ (lowercase, digits, underscores only). Pick descriptive     │
+│ names: `parse_receipt`, `gps_distance`, `slugify_kk`.       │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -165,6 +170,7 @@ tools = [
     "web_fetch",
     "memory_store",
     "memory_recall",
+    "skill_install",
 ]
 # Allow shell only for skill testing — never for arbitrary commands
 shell = ["python3", "node"]

@@ -198,6 +198,11 @@ mod tests {
         assert!(m.capabilities.tools.iter().any(|t| t == "file_write"));
         assert!(m.capabilities.tools.iter().any(|t| t == "shell_exec"));
         assert!(m.capabilities.tools.iter().any(|t| t == "web_search"));
+        // The whole point of this agent: it can install skills end-to-end.
+        assert!(
+            m.capabilities.tools.iter().any(|t| t == "skill_install"),
+            "capability-builder must have skill_install for autonomous skill creation"
+        );
     }
 
     #[test]
