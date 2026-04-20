@@ -42,11 +42,10 @@ impl WebFetchEngine {
     pub fn with_proxy(config: WebFetchConfig, cache: Arc<WebCache>, proxy: ProxyConfig) -> Self {
         let timeout = Duration::from_secs(config.timeout_secs);
         // Always build a direct client — used for proxy-disabled and bypass cases.
-        let direct_client =
-            crate::http_client::build_with_proxy(&ProxyConfig::default(), timeout, None);
+        let direct_client = crate::http_client::build_with_proxy(&ProxyConfig::default(), timeout);
         // Build proxy client only if proxy is configured.
         let proxy_client = if proxy.is_enabled() {
-            Some(crate::http_client::build_with_proxy(&proxy, timeout, None))
+            Some(crate::http_client::build_with_proxy(&proxy, timeout))
         } else {
             None
         };

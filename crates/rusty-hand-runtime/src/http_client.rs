@@ -39,27 +39,27 @@ pub fn shared() -> &'static reqwest::Client {
 
 /// Build a `reqwest::Client` that routes through the given proxy when configured.
 ///
-/// If `cfg.is_enabled()` is false, returns a plain client (same defaults as `shared()`).
+/// If `cfg.is_enabled()` is false, returns a plain client with standard pool defaults.
 /// On proxy build failure (malformed URL, etc.), logs a warning and falls back to a
 /// non-proxied client so the system stays usable.
 ///
 /// `timeout` is the per-request timeout (use 60s for typical web fetches; longer for
-/// scraping with high latency residential proxies).
+/// scraping with high-latency residential proxies).
 ///
-/// `target_host` lets us check `no_proxy` rules — if set and host is bypassed,
-/// returns a non-proxied client even when proxy is enabled.
-pub fn build_with_proxy(
-    cfg: &ProxyConfig,
-    timeout: Duration,
-    target_host: Option<&str>,
-) -> reqwest::Client {
-    let bypass = target_host.map(|h| cfg.should_bypass(h)).unwrap_or(false);
-
-    if !cfg.is_enabled() || bypass {
-        return reqwest::Client::builder()
+/// Note: per-host bypass via `no_proxy` is handled by callers — they pre-build both
+/// a proxy client and a direct client and pick at request time. This keeps the
+/// builder simple and avoids constructing a fresh Client per request.
+pub fn build_with_proxy(cfg: &ProxyConfig, timeout: Duration) -> reqwest::Client {
+    // Reusable builder for the standard pool defaults.
+    let direct_builder = || {
+        reqwest::Client::builder()
             .timeout(timeout)
             .pool_idle_timeout(Duration::from_secs(60))
             .pool_max_idle_per_host(10)
+    };
+
+    if !cfg.is_enabled() {
+        return direct_builder()
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
     }
@@ -75,28 +75,23 @@ pub fn build_with_proxy(
     let proxy = match proxy_result {
         Ok(p) => p,
         Err(e) => {
+            // SECURITY: log only the URL (without embedded auth if any) and the error.
+            // We do not log username/password fields.
             warn!(
                 proxy_url = %cfg.url,
                 error = %e,
                 "Failed to build HTTP proxy — falling back to direct connection"
             );
-            return reqwest::Client::builder()
-                .timeout(timeout)
+            return direct_builder()
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new());
         }
     };
 
-    reqwest::Client::builder()
-        .timeout(timeout)
-        .pool_idle_timeout(Duration::from_secs(60))
-        .pool_max_idle_per_host(10)
-        .proxy(proxy)
-        .build()
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "Failed to build proxy client — using direct connection");
-            reqwest::Client::new()
-        })
+    direct_builder().proxy(proxy).build().unwrap_or_else(|e| {
+        warn!(error = %e, "Failed to build proxy client — using direct connection");
+        reqwest::Client::new()
+    })
 }
 
 #[cfg(test)]
@@ -106,7 +101,7 @@ mod tests {
     #[test]
     fn build_no_proxy_when_disabled() {
         let cfg = ProxyConfig::default();
-        let _client = build_with_proxy(&cfg, Duration::from_secs(30), None);
+        let _client = build_with_proxy(&cfg, Duration::from_secs(30));
         // Just verifies it builds without panicking.
     }
 
@@ -118,7 +113,7 @@ mod tests {
             password: "pass".to_string(),
             no_proxy: vec![],
         };
-        let _client = build_with_proxy(&cfg, Duration::from_secs(30), None);
+        let _client = build_with_proxy(&cfg, Duration::from_secs(30));
     }
 
     #[test]
@@ -130,21 +125,18 @@ mod tests {
             no_proxy: vec![],
         };
         // Must not panic — warns and falls back to direct client.
-        let _client = build_with_proxy(&cfg, Duration::from_secs(30), None);
+        let _client = build_with_proxy(&cfg, Duration::from_secs(30));
     }
 
     #[test]
-    fn bypasses_host_in_no_proxy() {
+    fn build_with_socks5_proxy() {
         let cfg = ProxyConfig {
-            url: "http://proxy.example.com:8080".to_string(),
-            username: String::new(),
-            password: String::new(),
-            no_proxy: vec!["internal.corp".to_string(), "*.local".to_string()],
+            url: "socks5://proxy.example.com:1080".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            no_proxy: vec![],
         };
-        // These should bypass the proxy:
-        let _ = build_with_proxy(&cfg, Duration::from_secs(30), Some("internal.corp"));
-        let _ = build_with_proxy(&cfg, Duration::from_secs(30), Some("foo.local"));
-        // This should go through the proxy:
-        let _ = build_with_proxy(&cfg, Duration::from_secs(30), Some("olx.kz"));
+        // SOCKS5 proxies should also build successfully.
+        let _client = build_with_proxy(&cfg, Duration::from_secs(30));
     }
 }

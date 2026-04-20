@@ -287,7 +287,7 @@ impl Default for WebFetchConfig {
 /// password = "secret"
 /// no_proxy = ["localhost", "127.0.0.1", "*.internal"]
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProxyConfig {
     /// Proxy URL (e.g. `http://brd.superproxy.io:33335`). Empty disables the proxy.
@@ -298,13 +298,35 @@ pub struct ProxyConfig {
     pub username: String,
     /// Optional basic auth password for the proxy.
     /// SECURITY: skip_serializing prevents accidental exposure in JSON output.
+    /// Custom Debug impl below redacts this field.
     #[serde(default, skip_serializing)]
     pub password: String,
     /// Hostnames that should bypass the proxy (direct connection).
     /// Supports exact match and wildcard prefix `*.` (e.g. `*.internal`).
-    /// Localhost and 127.0.0.1 are always bypassed regardless of this list.
+    /// `localhost`, `127.0.0.1`, and `::1` are always bypassed regardless of this list.
+    /// Wildcards do NOT match the bare suffix (`*.local` doesn't match `local`).
     #[serde(default)]
     pub no_proxy: Vec<String>,
+}
+
+/// SECURITY: Custom Debug impl redacts the password so it never leaks into
+/// logs or panic messages via `{:?}` / `dbg!()`.
+impl std::fmt::Debug for ProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProxyConfig")
+            .field("url", &self.url)
+            .field("username", &self.username)
+            .field(
+                "password",
+                &if self.password.is_empty() {
+                    "<empty>"
+                } else {
+                    "<redacted>"
+                },
+            )
+            .field("no_proxy", &self.no_proxy)
+            .finish()
+    }
 }
 
 impl ProxyConfig {
@@ -3171,6 +3193,10 @@ impl KernelConfig {
             ));
         }
 
+        // Validate proxy configuration if any (catches malformed URL / missing password
+        // at boot rather than at first request).
+        warnings.extend(self.proxy.validate());
+
         warnings
     }
 
@@ -3306,6 +3332,52 @@ mod tests {
         let warnings = config.validate();
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("Discord"));
+    }
+
+    #[test]
+    fn proxy_password_never_in_debug_output() {
+        let cfg = ProxyConfig {
+            url: "http://proxy.example.com:8080".to_string(),
+            username: "user".to_string(),
+            password: "supersecret123".to_string(),
+            no_proxy: vec![],
+        };
+        let debug_str = format!("{cfg:?}");
+        // The actual password must NEVER appear, regardless of formatting.
+        assert!(
+            !debug_str.contains("supersecret123"),
+            "password leaked into Debug output: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("<redacted>"),
+            "password should be marked redacted, got: {debug_str}"
+        );
+        // Empty password should show <empty>, not <redacted>
+        let cfg_empty = ProxyConfig {
+            url: "http://proxy.example.com:8080".to_string(),
+            username: "user".to_string(),
+            password: String::new(),
+            no_proxy: vec![],
+        };
+        let debug_empty = format!("{cfg_empty:?}");
+        assert!(debug_empty.contains("<empty>"));
+        assert!(!debug_empty.contains("<redacted>"));
+    }
+
+    #[test]
+    fn proxy_password_never_serialized_to_json() {
+        let cfg = ProxyConfig {
+            url: "http://proxy.example.com:8080".to_string(),
+            username: "user".to_string(),
+            password: "supersecret123".to_string(),
+            no_proxy: vec![],
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            !json.contains("supersecret123"),
+            "password leaked into JSON: {json}"
+        );
+        assert!(!json.contains("password"), "password key in JSON: {json}");
     }
 
     #[test]
