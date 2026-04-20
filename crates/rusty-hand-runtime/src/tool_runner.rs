@@ -1449,6 +1449,12 @@ const MAX_SKILL_CONTENT_BYTES: usize = 256 * 1024;
 
 /// Install a new Python or JavaScript skill into the global skills directory.
 ///
+/// The agent provides ONLY the body of `run(input) -> result`. We wrap that
+/// body in a stdin/stdout boilerplate that satisfies RustyHand's skill runtime
+/// contract (skills receive `{"tool", "input"}` JSON via stdin, emit JSON via
+/// stdout). This keeps the agent-facing API simple while ensuring every
+/// installed skill is actually executable by the loader.
+///
 /// SECURITY:
 /// - Name must match `^[a-z][a-z0-9_]{0,63}$` (no path traversal possible)
 /// - Language must be `python` or `javascript`
@@ -1465,10 +1471,12 @@ const MAX_SKILL_CONTENT_BYTES: usize = 256 * 1024;
 ///   "name": "haversine",
 ///   "language": "python",       // or "javascript"
 ///   "description": "Distance between two GPS coordinates",
-///   "content": "def run(input):\n    ...",
+///   "content": "import math\n\ndef run(input):\n    ...\n    return {...}",
 ///   "overwrite": false           // default false
 /// }
 /// ```
+///
+/// The skill becomes callable as a tool with the same name as the skill.
 async fn tool_skill_install(
     input: &serde_json::Value,
     skill_registry: Option<&SkillRegistry>,
@@ -1504,9 +1512,12 @@ async fn tool_skill_install(
     let language = input["language"]
         .as_str()
         .ok_or("Missing 'language' parameter (python|javascript)")?;
-    let extension = match language {
-        "python" | "py" => "py",
-        "javascript" | "js" => "js",
+    // Map agent input → SkillRuntime variant name + file extension.
+    // The runtime_type string MUST be a valid SkillRuntime serde value
+    // (lowercase, see rusty_hand_skills::SkillRuntime).
+    let (runtime_type, extension) = match language {
+        "python" | "py" => ("python", "py"),
+        "javascript" | "js" | "node" => ("node", "js"),
         other => {
             return Err(format!(
                 "Unsupported language '{other}' (allowed: python, javascript)"
@@ -1554,19 +1565,81 @@ async fn tool_skill_install(
     }
 
     // --- Write files ----------------------------------------------------
-    // We write a minimal skill.toml + the source file. Hot-reload will
-    // pick it up on the next registry refresh.
     tokio::fs::create_dir_all(&skill_dir)
         .await
         .map_err(|e| format!("Failed to create skill directory: {e}"))?;
 
-    let source_path = skill_dir.join(format!("{name}.{extension}"));
-    tokio::fs::write(&source_path, content)
+    // Wrap user's `run(input)` function in a stdin/stdout boilerplate that
+    // matches the Python/Node skill loader contract. Without this, the user
+    // would have to write boilerplate every time AND the skill would not be
+    // executable by the loader (which sends JSON via stdin).
+    let entry_filename = format!("{name}.{extension}");
+    let wrapped_source = if runtime_type == "python" {
+        format!(
+            r#"# Auto-generated wrapper around user's run() function.
+# Reads {{"tool", "input"}} from stdin, prints JSON result to stdout.
+import sys
+import json
+
+# === User code ===
+{content}
+# === End user code ===
+
+if __name__ == "__main__":
+    try:
+        payload = json.loads(sys.stdin.read() or "{{}}")
+    except json.JSONDecodeError as e:
+        print(json.dumps({{"error": f"Invalid JSON on stdin: {{e}}"}}))
+        sys.exit(2)
+    user_input = payload.get("input", {{}})
+    try:
+        result = run(user_input)  # noqa: F821 — provided by user code above
+    except Exception as exc:  # noqa: BLE001 — surface any error to caller
+        print(json.dumps({{"error": str(exc), "type": type(exc).__name__}}))
+        sys.exit(1)
+    print(json.dumps(result))
+"#
+        )
+    } else {
+        format!(
+            r#"// Auto-generated wrapper around user's run() function.
+// Reads {{tool, input}} from stdin, prints JSON result to stdout.
+const _chunks = [];
+process.stdin.on('data', c => _chunks.push(c));
+process.stdin.on('end', () => {{
+    let payload;
+    try {{
+        payload = JSON.parse(Buffer.concat(_chunks).toString() || '{{}}');
+    }} catch (e) {{
+        console.log(JSON.stringify({{error: 'Invalid JSON on stdin: ' + e.message}}));
+        process.exit(2);
+    }}
+    try {{
+        const result = run(payload.input || {{}});
+        console.log(JSON.stringify(result));
+    }} catch (e) {{
+        console.log(JSON.stringify({{error: e.message, type: e.constructor.name}}));
+        process.exit(1);
+    }}
+}});
+
+// === User code ===
+{content}
+// === End user code ===
+"#
+        )
+    };
+
+    let source_path = skill_dir.join(&entry_filename);
+    tokio::fs::write(&source_path, &wrapped_source)
         .await
         .map_err(|e| format!("Failed to write skill source: {e}"))?;
 
+    // Build a manifest with CORRECT field names (verified against
+    // SkillRuntimeConfig: type/entry, not kind/entrypoint) plus a single
+    // tool registration so execute_skill_tool can find the entry point.
     let manifest_toml = format!(
-        r#"# Auto-generated by skill_install tool. Safe to delete this skill via
+        r#"# Auto-generated by skill_install. Safe to delete this skill via
 # `rm -rf {skill_dir}` — RustyHand will detect removal on next reload.
 
 [skill]
@@ -1577,12 +1650,16 @@ author = "rustyhand:capability-builder"
 tags = ["auto-installed"]
 
 [runtime]
-kind = "subprocess"
-language = "{language}"
-entrypoint = "{name}.{extension}"
+type = "{runtime_type}"
+entry = "{entry_filename}"
+
+[[tools.provided]]
+name = "{name}"
+description = {description_quoted}
+input_schema = {{ type = "object", additionalProperties = true }}
 
 [source]
-created_by = "skill_install"
+type = "native"
 "#,
         skill_dir = skill_dir.display(),
         description_quoted = toml_quote_string(description),
@@ -1596,12 +1673,11 @@ created_by = "skill_install"
         .await
         .map_err(|e| format!("Failed to write marker: {e}"))?;
 
-    // --- Compute SHA-256 of installed source for audit trail ------------
-    let hash = sha256_hex(content.as_bytes());
+    let hash = sha256_hex(wrapped_source.as_bytes());
 
     Ok(format!(
-        "Installed skill '{name}' ({extension}, {bytes} bytes, sha256:{hash_short}) at {path}. Run `rustyhand skills reload` or wait for the next hot-reload tick.",
-        bytes = content.len(),
+        "Installed skill '{name}' ({extension}, {bytes} bytes wrapped, sha256:{hash_short}) at {path}. Tool name: '{name}'. Available after the next hot-reload tick.",
+        bytes = wrapped_source.len(),
         hash_short = &hash[..16],
         path = source_path.display(),
     ))
@@ -3591,6 +3667,65 @@ mod tests {
         let manifest = std::fs::read_to_string(skill_dir.join("skill.toml")).unwrap();
         assert!(manifest.contains("name = \"haversine\""));
         assert!(manifest.contains("Distance between coords"));
+        // Source file includes user code AND wrapper boilerplate.
+        let src = std::fs::read_to_string(skill_dir.join("haversine.py")).unwrap();
+        assert!(src.contains("def run(x):"));
+        assert!(src.contains("import sys"));
+        assert!(src.contains("import json"));
+        assert!(src.contains("json.loads(sys.stdin.read()"));
+    }
+
+    /// END-TO-END: install via tool, then load via SkillRegistry — proves
+    /// that the generated manifest is actually valid (catches bugs like
+    /// wrong field names, invalid runtime variants, missing tool registration).
+    #[tokio::test]
+    async fn skill_install_produces_loadable_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "loadable",
+                "language": "python",
+                "description": "End-to-end test skill",
+                "content": "def run(x):\n    return {'echo': x}\n"
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+
+        // Now create a fresh registry on the same dir and load_all — this
+        // exercises the real deserialization path.
+        let mut fresh = SkillRegistry::new(tmp.path().to_path_buf());
+        let count = fresh
+            .load_all()
+            .expect("registry must be able to load skill we just installed");
+        assert_eq!(count, 1, "expected exactly 1 loaded skill, got {count}");
+        let names = fresh.skill_names();
+        assert!(
+            names.contains(&"loadable".to_string()),
+            "loaded skills: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn skill_install_javascript_produces_loadable_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = make_test_registry(tmp.path());
+        tool_skill_install(
+            &serde_json::json!({
+                "name": "jsskill",
+                "language": "javascript",
+                "description": "JS test",
+                "content": "function run(x) { return {ok: true, got: x}; }"
+            }),
+            Some(&registry),
+        )
+        .await
+        .unwrap();
+        let mut fresh = SkillRegistry::new(tmp.path().to_path_buf());
+        let count = fresh.load_all().unwrap();
+        assert_eq!(count, 1);
     }
 
     #[tokio::test]
@@ -3719,7 +3854,7 @@ mod tests {
             &serde_json::json!({
                 "name": "selfown",
                 "language": "python",
-                "content": "v1",
+                "content": "MARKER_V1",
                 "description": ""
             }),
             Some(&registry),
@@ -3731,7 +3866,7 @@ mod tests {
             &serde_json::json!({
                 "name": "selfown",
                 "language": "python",
-                "content": "v2_updated",
+                "content": "MARKER_V2_UPDATED",
                 "description": "",
                 "overwrite": true
             }),
@@ -3739,9 +3874,17 @@ mod tests {
         )
         .await
         .unwrap();
+        // The wrapped source contains the new user content (and not the old).
         let content =
             std::fs::read_to_string(tmp.path().join("selfown").join("selfown.py")).unwrap();
-        assert_eq!(content, "v2_updated");
+        assert!(
+            content.contains("MARKER_V2_UPDATED"),
+            "expected new content in wrapped source"
+        );
+        assert!(
+            !content.contains("MARKER_V1"),
+            "old content should have been replaced"
+        );
     }
 
     #[tokio::test]
@@ -3784,24 +3927,6 @@ mod tests {
         assert!(manifest_str.contains(r"\\"));
         // Newline escaped as \n (not raw 0x0A inside the description value)
         assert!(manifest_str.contains(r"\n"));
-    }
-
-    #[tokio::test]
-    async fn skill_install_javascript_works() {
-        let tmp = tempfile::tempdir().unwrap();
-        let registry = make_test_registry(tmp.path());
-        tool_skill_install(
-            &serde_json::json!({
-                "name": "jsskill",
-                "language": "javascript",
-                "content": "function run(x) { return {ok: true}; }",
-                "description": "JS skill"
-            }),
-            Some(&registry),
-        )
-        .await
-        .unwrap();
-        assert!(tmp.path().join("jsskill").join("jsskill.js").exists());
     }
 
     // ─── existing tests below ───────────────────────────────────────────
