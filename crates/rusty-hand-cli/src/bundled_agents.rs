@@ -19,7 +19,15 @@ pub fn bundled_agents() -> Vec<(&'static str, &'static str)> {
             "assistant",
             include_str!("../../../agents/assistant/agent.toml"),
         ),
+        (
+            "capability-builder",
+            include_str!("../../../agents/capability-builder/agent.toml"),
+        ),
         ("coder", include_str!("../../../agents/coder/agent.toml")),
+        (
+            "coordinator",
+            include_str!("../../../agents/coordinator/agent.toml"),
+        ),
         (
             "code-reviewer",
             include_str!("../../../agents/code-reviewer/agent.toml"),
@@ -39,6 +47,10 @@ pub fn bundled_agents() -> Vec<(&'static str, &'static str)> {
         (
             "devops-lead",
             include_str!("../../../agents/devops-lead/agent.toml"),
+        ),
+        (
+            "diagnostic",
+            include_str!("../../../agents/diagnostic/agent.toml"),
         ),
         (
             "doc-writer",
@@ -137,6 +149,70 @@ pub fn install_bundled_agents(agents_dir: &std::path::Path) {
 mod tests {
     use super::*;
     use rusty_hand_types::agent::AgentManifest;
+
+    #[test]
+    fn meta_agents_parse_and_use_anthropic() {
+        for name in &["coordinator", "capability-builder", "diagnostic"] {
+            let toml_src = bundled_agents()
+                .into_iter()
+                .find(|(n, _)| n == name)
+                .unwrap_or_else(|| panic!("{name} template should exist"))
+                .1;
+            let m: AgentManifest = toml::from_str(toml_src)
+                .unwrap_or_else(|e| panic!("{name} template should parse: {e}"));
+            assert_eq!(m.name, *name, "{name}: name mismatch");
+            assert_eq!(
+                m.model.provider, "anthropic",
+                "{name}: meta-agents default to Anthropic Sonnet for routing quality"
+            );
+            assert!(
+                m.tags.iter().any(|t| t == "meta"),
+                "{name}: should be tagged 'meta' for discovery"
+            );
+        }
+    }
+
+    #[test]
+    fn coordinator_can_delegate_to_other_agents() {
+        let coord = bundled_agents()
+            .into_iter()
+            .find(|(n, _)| n == &"coordinator")
+            .unwrap()
+            .1;
+        let m: AgentManifest = toml::from_str(coord).unwrap();
+        // Coordinator's whole job is routing — must have agent_send + agent_list.
+        assert!(m.capabilities.tools.iter().any(|t| t == "agent_send"));
+        assert!(m.capabilities.tools.iter().any(|t| t == "agent_list"));
+        // Wildcard message permission so it can talk to any specialist.
+        assert!(m.capabilities.agent_message.iter().any(|a| a == "*"));
+    }
+
+    #[test]
+    fn capability_builder_can_write_skills() {
+        let cb = bundled_agents()
+            .into_iter()
+            .find(|(n, _)| n == &"capability-builder")
+            .unwrap()
+            .1;
+        let m: AgentManifest = toml::from_str(cb).unwrap();
+        assert!(m.capabilities.tools.iter().any(|t| t == "file_write"));
+        assert!(m.capabilities.tools.iter().any(|t| t == "shell_exec"));
+        assert!(m.capabilities.tools.iter().any(|t| t == "web_search"));
+    }
+
+    #[test]
+    fn diagnostic_reads_audit_but_does_not_modify() {
+        let diag = bundled_agents()
+            .into_iter()
+            .find(|(n, _)| n == &"diagnostic")
+            .unwrap()
+            .1;
+        let m: AgentManifest = toml::from_str(diag).unwrap();
+        assert!(m.capabilities.tools.iter().any(|t| t == "audit_query"));
+        // Diagnostic is read-only: no shell_exec, no agent_spawn.
+        assert!(!m.capabilities.tools.iter().any(|t| t == "shell_exec"));
+        assert!(!m.capabilities.agent_spawn);
+    }
 
     #[test]
     fn test_assistant_template_has_scheduler_tools() {
