@@ -325,7 +325,8 @@ pub async fn build_router(
         )
         .route(
             "/api/skills/install-custom",
-            axum::routing::post(routes::install_custom_skill),
+            axum::routing::post(routes::install_custom_skill)
+                .route_layer(axum::extract::DefaultBodyLimit::max(512 * 1024)),
         )
         .route(
             "/api/skills/uninstall",

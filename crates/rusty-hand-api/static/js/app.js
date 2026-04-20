@@ -353,17 +353,28 @@ document.addEventListener('alpine:init', function() {
     async refreshAgents() {
       try {
         var _pingStart = performance.now();
-        var url = '/api/agents?offset=' + this.agentsOffset + '&limit=' + this.agentsLimit;
+        var requestedOffset = this.agentsOffset;
+        var requestedLimit = this.agentsLimit;
+        var url = '/api/agents?offset=' + requestedOffset + '&limit=' + requestedLimit;
         var fresh = await RustyHandAPI.get(url);
         this.lastPingMs = Math.round(performance.now() - _pingStart);
+        // Discard stale responses: if the user clicked Next/Prev again while this
+        // request was in flight, `agentsOffset` has already moved. Applying this
+        // older response would overwrite the newer state and visibly "bounce" the page.
+        if (this.agentsOffset !== requestedOffset) {
+          return true;
+        }
         // Support both paginated {agents: [...], total} and legacy array responses
         var freshList = Array.isArray(fresh) ? fresh : (fresh && fresh.agents ? fresh.agents : []);
         if (fresh && !Array.isArray(fresh)) {
           this.agentsTotal = fresh.total || freshList.length;
-          if (typeof fresh.limit === 'number') this.agentsLimit = fresh.limit;
-          if (typeof fresh.offset === 'number') this.agentsOffset = fresh.offset;
         } else {
           this.agentsTotal = freshList.length;
+        }
+        // If our offset ran past the real total (e.g. agents were deleted), snap back.
+        if (this.agentsTotal > 0 && this.agentsOffset >= this.agentsTotal) {
+          this.agentsOffset = Math.max(0, Math.floor((this.agentsTotal - 1) / this.agentsLimit) * this.agentsLimit);
+          return this.refreshAgents();
         }
         // Update existing agents in-place to avoid flicker from full array replacement
         var existingById = {};

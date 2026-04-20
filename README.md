@@ -19,23 +19,22 @@
 <p align="center">
   <img src="https://img.shields.io/badge/language-Rust-orange?style=flat-square" alt="Rust" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" />
-  <img src="https://img.shields.io/badge/version-0.6.4-green?style=flat-square" alt="v0.6.4" />
+  <img src="https://img.shields.io/badge/version-0.6.5-green?style=flat-square" alt="v0.6.5" />
   <img src="https://img.shields.io/badge/tests-1,775%2B%20passing-brightgreen?style=flat-square" alt="Tests" />
   <img src="https://img.shields.io/badge/clippy-0%20warnings-brightgreen?style=flat-square" alt="Clippy" />
 </p>
 
 ---
 
-> **v0.6.4 — Self-service skills + workflow cron + meta-agent surfacing (April 2026)**
+> **v0.6.5 — Bug audit + Agent Activity tab (April 2026)**
 >
-> Dashboard UX closeout: Skills page now has an **Install skill** form that
-> compiles Python/Node code into a loadable manifest via the privileged
-> `skill_install` tool. Automation page supports scheduling **workflow
-> runs** (not just agent turns). Agents list gained prev/next pagination
-> controls for installs with 100+ agents. Three bundled meta-agents —
-> **Coordinator**, **Capability-Builder**, **Diagnostic** — are now
-> highlighted in the empty-state picker so new users can kick-start a
-> self-extending agent loop in one click.
+> Post-release audit of v0.6.4 surfaces. **Pagination race** fixed
+> (rapid Next clicks no longer bounce the page back). **`workflow_input`
+> now trimmed** before submission. **Install-custom skill endpoint**
+> gains a dedicated 512 KB body limit (down from the global 4 MB).
+> New **Activity tab** in the agent detail modal: timeline of recent
+> audit events, session updates, and cron runs, plus per-agent 1h/24h/30d
+> spend from the existing budget endpoints — zero schema changes.
 > [Report issues here.](https://github.com/ginkida/rustyhand/issues)
 
 ---

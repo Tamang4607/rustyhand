@@ -65,6 +65,14 @@ function agentsPage() {
     configForm: {},
     configSaving: false,
 
+    // -- Activity tab state --
+    activityLoading: false,
+    activityError: '',
+    activityEvents: [],
+    activitySessions: [],
+    activityCronJobs: [],
+    activityBudget: null,
+
     // -- Model change in detail modal --
     editingModel: false,
     modelChangeProvider: '',
@@ -660,6 +668,116 @@ function agentsPage() {
         RustyHandToast.error('Failed to spawn agent: ' + e.message);
       }
       this.spawning = false;
+    },
+
+    // ── Detail modal: Activity tab ──
+    async loadActivity() {
+      if (!this.detailAgent) return;
+      var agentId = this.detailAgent.id;
+      this.activityLoading = true;
+      this.activityError = '';
+      this.activityEvents = [];
+      this.activitySessions = [];
+      this.activityCronJobs = [];
+      this.activityBudget = null;
+      try {
+        var results = await Promise.allSettled([
+          RustyHandAPI.get('/api/audit/recent?n=1000'),
+          RustyHandAPI.get('/api/agents/' + agentId + '/sessions?limit=50'),
+          RustyHandAPI.get('/api/cron/jobs?agent_id=' + encodeURIComponent(agentId)),
+          RustyHandAPI.get('/api/budget/agents/' + encodeURIComponent(agentId))
+        ]);
+
+        var events = [];
+
+        // Audit events — filter to this agent
+        if (results[0].status === 'fulfilled') {
+          var entries = (results[0].value && results[0].value.entries) || [];
+          for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            if (e.agent_id !== agentId) continue;
+            events.push({
+              ts: e.timestamp,
+              type: 'audit',
+              action: e.action,
+              title: e.action,
+              detail: e.detail || '',
+              outcome: e.outcome || ''
+            });
+          }
+        }
+
+        // Sessions — only show session.updated_at as "session activity"
+        if (results[1].status === 'fulfilled') {
+          var sess = results[1].value;
+          var sessList = Array.isArray(sess) ? sess : ((sess && sess.sessions) || []);
+          this.activitySessions = sessList.slice(0, 20);
+          for (var j = 0; j < sessList.length; j++) {
+            var s = sessList[j];
+            events.push({
+              ts: s.updated_at || s.created_at,
+              type: 'session',
+              action: 'SessionActivity',
+              title: 'Session ' + (s.label || s.id || '').substring(0, 40),
+              detail: (s.message_count || 0) + ' message(s)',
+              outcome: ''
+            });
+          }
+        }
+
+        // Cron jobs — last_run entries
+        if (results[2].status === 'fulfilled') {
+          var cron = results[2].value;
+          var jobList = Array.isArray(cron) ? cron : ((cron && cron.jobs) || []);
+          this.activityCronJobs = jobList;
+          for (var k = 0; k < jobList.length; k++) {
+            var job = jobList[k];
+            if (!job.last_run) continue;
+            events.push({
+              ts: job.last_run,
+              type: 'cron',
+              action: 'CronRun',
+              title: 'Cron: ' + (job.name || '(unnamed)'),
+              detail: job.last_status || '',
+              outcome: ''
+            });
+          }
+        }
+
+        // Per-agent budget — hourly/daily/monthly spend + limits
+        if (results[3].status === 'fulfilled' && results[3].value) {
+          this.activityBudget = results[3].value;
+        }
+
+        // Sort newest first, drop entries without a timestamp
+        events = events.filter(function(ev) { return !!ev.ts; });
+        events.sort(function(a, b) { return new Date(b.ts) - new Date(a.ts); });
+        this.activityEvents = events.slice(0, 200);
+      } catch (e) {
+        this.activityError = e.message || 'Failed to load activity';
+      }
+      this.activityLoading = false;
+    },
+
+    activityIcon(type) {
+      if (type === 'audit') return '\u25CF';
+      if (type === 'session') return '\u25A0';
+      if (type === 'cron') return '\u23F0';
+      return '\u2022';
+    },
+
+    activityTs(ts) {
+      if (!ts) return '';
+      try {
+        var d = new Date(ts);
+        if (isNaN(d.getTime())) return '';
+        var diff = Date.now() - d.getTime();
+        if (diff < 60000) return 'just now';
+        if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+        if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+        if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
+        return d.toLocaleDateString();
+      } catch (e) { return ''; }
     },
 
     // ── Detail modal: Files tab ──

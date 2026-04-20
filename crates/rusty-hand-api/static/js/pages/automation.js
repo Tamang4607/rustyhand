@@ -359,7 +359,7 @@ function automationPage() {
         var wfAction = {
           kind: 'workflow_run',
           workflow_id: f.workflow_id.trim(),
-          input: f.workflow_input
+          input: (f.workflow_input || '').trim()
         };
         if (f.timeout_secs) wfAction.timeout_secs = parseInt(f.timeout_secs, 10);
         payload.action = wfAction;

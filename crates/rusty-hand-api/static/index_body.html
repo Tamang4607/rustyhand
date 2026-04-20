@@ -726,6 +726,7 @@
               </div>
               <div class="tabs" style="margin-bottom:16px">
                 <div class="tab" :class="{ active: detailTab === 'info' }" @click="detailTab = 'info'">Info</div>
+                <div class="tab" :class="{ active: detailTab === 'activity' }" @click="detailTab = 'activity'; loadActivity()">Activity</div>
                 <div class="tab" :class="{ active: detailTab === 'files' }" @click="detailTab = 'files'; loadAgentFiles()">Files</div>
                 <div class="tab" :class="{ active: detailTab === 'config' }" @click="detailTab = 'config'">Config</div>
               </div>
@@ -789,6 +790,74 @@
                   <button class="btn btn-ghost" @click="showDetailModal = false; navigate('automation'); $nextTick(() => { var sp = document.querySelector('[x-data=&quot;automationPage()&quot;]'); if(sp && sp.__x) { sp.__x.$data.filterAgentId = detailAgent.id; sp.__x.$data.loadJobs(); } })">Automation</button>
                   <button class="btn btn-ghost" @click="cloneAgent(detailAgent)">Clone</button>
                   <button class="btn btn-danger" @click="killAgent(detailAgent)">Stop</button>
+                </div>
+              </div>
+
+              <!-- Tab: Activity -->
+              <div x-show="detailTab === 'activity'">
+                <div class="flex justify-between items-center" style="margin-bottom:12px">
+                  <span class="text-xs text-dim">Last 7 days of activity across audit, sessions, and cron runs.</span>
+                  <button class="btn btn-ghost btn-sm" @click="loadActivity()" :disabled="activityLoading">
+                    <span x-show="!activityLoading">Refresh</span>
+                    <span x-show="activityLoading">Loading...</span>
+                  </button>
+                </div>
+
+                <!-- Per-agent budget / spend -->
+                <div x-show="activityBudget" class="flex gap-2" style="margin-bottom:12px">
+                  <div class="card" style="flex:1;padding:10px 12px">
+                    <div class="text-xs text-dim">Spend, 1h</div>
+                    <div class="font-bold" style="font-size:14px" x-text="'$' + ((activityBudget && activityBudget.hourly && activityBudget.hourly.spend) || 0).toFixed(4)"></div>
+                    <div class="text-xs text-dim" x-show="activityBudget && activityBudget.hourly && activityBudget.hourly.limit > 0" x-text="'limit $' + (activityBudget.hourly.limit || 0).toFixed(2)"></div>
+                  </div>
+                  <div class="card" style="flex:1;padding:10px 12px">
+                    <div class="text-xs text-dim">Spend, 24h</div>
+                    <div class="font-bold" style="font-size:14px" x-text="'$' + ((activityBudget && activityBudget.daily && activityBudget.daily.spend) || 0).toFixed(4)"></div>
+                    <div class="text-xs text-dim" x-show="activityBudget && activityBudget.daily && activityBudget.daily.limit > 0" x-text="'limit $' + (activityBudget.daily.limit || 0).toFixed(2)"></div>
+                  </div>
+                  <div class="card" style="flex:1;padding:10px 12px">
+                    <div class="text-xs text-dim">Spend, 30d</div>
+                    <div class="font-bold" style="font-size:14px" x-text="'$' + ((activityBudget && activityBudget.monthly && activityBudget.monthly.spend) || 0).toFixed(2)"></div>
+                    <div class="text-xs text-dim" x-show="activityBudget && activityBudget.monthly && activityBudget.monthly.limit > 0" x-text="'limit $' + (activityBudget.monthly.limit || 0).toFixed(2)"></div>
+                  </div>
+                </div>
+
+                <!-- Cron jobs summary -->
+                <div x-show="activityCronJobs.length" style="margin-bottom:12px">
+                  <div class="text-xs text-dim" style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Scheduled Jobs</div>
+                  <template x-for="job in activityCronJobs" :key="job.id">
+                    <div class="flex justify-between items-center" style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">
+                      <span x-text="job.name || '(unnamed)'"></span>
+                      <span class="flex gap-2 items-center">
+                        <span class="badge" :class="job.enabled ? 'badge-success' : 'badge-dim'" style="font-size:10px" x-text="job.enabled ? 'Active' : 'Paused'"></span>
+                        <span class="text-xs text-dim" x-text="job.last_run ? activityTs(job.last_run) : 'never run'"></span>
+                      </span>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Timeline -->
+                <div>
+                  <div class="text-xs text-dim" style="font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Timeline</div>
+                  <div x-show="activityLoading" class="text-center text-dim" style="padding:24px">Loading activity...</div>
+                  <div x-show="!activityLoading && activityError" class="error-state" style="padding:12px">
+                    <span x-text="activityError"></span>
+                  </div>
+                  <div x-show="!activityLoading && !activityError && !activityEvents.length" class="text-center text-dim" style="padding:24px;font-size:12px">
+                    No recorded activity for this agent yet.
+                  </div>
+                  <div x-show="!activityLoading && activityEvents.length" style="max-height:320px;overflow-y:auto">
+                    <template x-for="(ev, idx) in activityEvents" :key="idx">
+                      <div style="display:grid;grid-template-columns:20px 1fr auto;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px;align-items:center">
+                        <span class="text-dim" x-text="activityIcon(ev.type)"></span>
+                        <div style="min-width:0">
+                          <div class="font-bold" style="font-size:12px" x-text="ev.title"></div>
+                          <div class="text-xs text-dim truncate" x-text="ev.detail" :title="ev.detail"></div>
+                        </div>
+                        <span class="text-xs text-dim" :title="ev.ts" x-text="activityTs(ev.ts)"></span>
+                      </div>
+                    </template>
+                  </div>
                 </div>
               </div>
 
