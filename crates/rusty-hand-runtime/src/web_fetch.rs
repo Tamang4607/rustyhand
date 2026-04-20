@@ -13,9 +13,18 @@ use std::time::Duration;
 use tracing::debug;
 
 /// Enhanced web fetch engine with SSRF protection and readability extraction.
+///
+/// When a proxy is configured, the engine pre-builds two clients:
+/// - `proxy_client` — routes through the configured proxy
+/// - `direct_client` — bypasses the proxy (used for `no_proxy` hosts)
+///
+/// Both are reused across all fetches for proper connection pooling.
 pub struct WebFetchEngine {
     config: WebFetchConfig,
-    client: reqwest::Client,
+    /// Direct client (no proxy). Always present.
+    direct_client: reqwest::Client,
+    /// Proxy client. `Some` only when `proxy.is_enabled()` returned true at construction.
+    proxy_client: Option<reqwest::Client>,
     cache: Arc<WebCache>,
     proxy: ProxyConfig,
 }
@@ -32,11 +41,19 @@ impl WebFetchEngine {
     /// (with `no_proxy` bypass for matching hosts).
     pub fn with_proxy(config: WebFetchConfig, cache: Arc<WebCache>, proxy: ProxyConfig) -> Self {
         let timeout = Duration::from_secs(config.timeout_secs);
-        // Default client (used for hosts that bypass the proxy or when proxy is off).
-        let client = crate::http_client::build_with_proxy(&proxy, timeout, None);
+        // Always build a direct client — used for proxy-disabled and bypass cases.
+        let direct_client =
+            crate::http_client::build_with_proxy(&ProxyConfig::default(), timeout, None);
+        // Build proxy client only if proxy is configured.
+        let proxy_client = if proxy.is_enabled() {
+            Some(crate::http_client::build_with_proxy(&proxy, timeout, None))
+        } else {
+            None
+        };
         Self {
             config,
-            client,
+            direct_client,
+            proxy_client,
             cache,
             proxy,
         }
@@ -59,22 +76,12 @@ impl WebFetchEngine {
             return Ok(cached);
         }
 
-        // Step 3: HTTP GET — use a per-host client so `no_proxy` bypass works
-        // even when the engine was built with a proxy.
+        // Step 3: HTTP GET — pick the right pre-built client (no per-request client construction).
         let host = extract_host(url);
         let host_only = host.split(':').next().unwrap_or(&host);
-        let client = if self.proxy.is_enabled() && !self.proxy.should_bypass(host_only) {
-            // Use the proxy-configured shared client.
-            self.client.clone()
-        } else if self.proxy.is_enabled() {
-            // Proxy enabled but this host bypasses — build a direct client.
-            crate::http_client::build_with_proxy(
-                &ProxyConfig::default(),
-                Duration::from_secs(self.config.timeout_secs),
-                Some(host_only),
-            )
-        } else {
-            self.client.clone()
+        let client = match &self.proxy_client {
+            Some(pc) if !self.proxy.should_bypass(host_only) => pc,
+            _ => &self.direct_client,
         };
 
         let resp = client

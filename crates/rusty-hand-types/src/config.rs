@@ -338,7 +338,17 @@ impl ProxyConfig {
     }
 
     /// Check whether the proxy should be bypassed for a given host.
-    /// Always bypasses localhost and 127.0.0.1.
+    /// Always bypasses localhost, 127.0.0.1 and ::1.
+    ///
+    /// `no_proxy` matching:
+    /// - exact: `internal.corp` matches only `internal.corp` (case-insensitive)
+    /// - wildcard: `*.local` matches `foo.local` and `a.b.local`, but NOT bare `local`
+    ///   (matches standard `no_proxy` semantics — to bypass the bare host, add
+    ///   it as a separate exact entry).
+    ///
+    /// Bypass means the request goes direct (no proxy), so being conservative
+    /// here is a security choice: fewer accidental bypasses = more traffic
+    /// stays on the proxy as the operator expects.
     pub fn should_bypass(&self, host: &str) -> bool {
         let h = host.to_lowercase();
         if h == "localhost" || h == "127.0.0.1" || h == "::1" {
@@ -350,7 +360,8 @@ impl ProxyConfig {
                 continue;
             }
             if let Some(suffix) = e.strip_prefix("*.") {
-                if h == suffix || h.ends_with(&format!(".{suffix}")) {
+                // Standard wildcard semantics: only subdomains of `suffix` match.
+                if h.ends_with(&format!(".{suffix}")) {
                     return true;
                 }
             } else if h == e {
@@ -3380,8 +3391,24 @@ mod tests {
         };
         assert!(cfg.should_bypass("foo.local"));
         assert!(cfg.should_bypass("a.b.local"));
-        assert!(cfg.should_bypass("local")); // suffix match also matches the bare value
+        // Standard semantics: bare suffix does NOT match — must add a separate exact entry.
+        assert!(!cfg.should_bypass("local"));
         assert!(!cfg.should_bypass("local.org"));
+        // Avoid prefix-collision false positives (e.g. "evilexample.com" must not match "*.example.com")
+        assert!(!cfg.should_bypass("notlocal"));
+    }
+
+    #[test]
+    fn proxy_should_bypass_wildcard_plus_exact() {
+        // To bypass both subdomains AND the bare host, configure both.
+        let cfg = ProxyConfig {
+            url: "http://proxy.example.com".to_string(),
+            no_proxy: vec!["*.example.com".to_string(), "example.com".to_string()],
+            ..Default::default()
+        };
+        assert!(cfg.should_bypass("example.com"));
+        assert!(cfg.should_bypass("foo.example.com"));
+        assert!(!cfg.should_bypass("evilexample.com")); // no false positive
     }
 
     #[test]
