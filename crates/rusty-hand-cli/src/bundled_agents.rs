@@ -208,8 +208,11 @@ mod tests {
             .unwrap()
             .1;
         let m: AgentManifest = toml::from_str(diag).unwrap();
-        assert!(m.capabilities.tools.iter().any(|t| t == "audit_query"));
-        // Diagnostic is read-only: no shell_exec, no agent_spawn.
+        // Diagnostic uses self_history/self_metrics (real builtin tools)
+        // and web_fetch to localhost for the kernel audit API.
+        assert!(m.capabilities.tools.iter().any(|t| t == "self_history"));
+        assert!(m.capabilities.tools.iter().any(|t| t == "web_fetch"));
+        // Read-only: no shell_exec, no agent_spawn.
         assert!(!m.capabilities.tools.iter().any(|t| t == "shell_exec"));
         assert!(!m.capabilities.agent_spawn);
     }

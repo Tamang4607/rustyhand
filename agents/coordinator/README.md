@@ -77,9 +77,13 @@ self-extending assistant.
 
 ## What it CANNOT do (honest limits)
 
-- **Modify Rust source code** — Capability Builder only writes Python/JS skills
-  or MCP configs. For new built-in tools / channel adapters / LLM drivers,
-  it produces a SPEC and pings you on Telegram.
+- **Auto-install new skills** — RustyHand sandboxes file_write to each agent's
+  workspace. Capability Builder writes a draft skill to its own workspace
+  (`~/.rustyhand/workspaces/capability-builder-XXX/proposed_skills/`) and
+  tells you the `cp` command to install it. Hot-reload picks it up after
+  manual copy. (Future: a `skill_install` Rust tool would close this gap.)
+- **Modify Rust source code** — for new built-in tools / channel adapters /
+  LLM drivers, Capability Builder produces a SPEC and pings you on Telegram.
 - **Solve CAPTCHAs** — needs an external service (CapSolver) wired in.
 - **Computer Use (GUI control)** — RustyHand has browser automation but not
   desktop-app control.

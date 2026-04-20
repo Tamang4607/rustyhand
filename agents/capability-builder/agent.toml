@@ -35,11 +35,16 @@ For every task that lands here, classify into ONE of three buckets:
 │ Action:                                                     │
 │ 1. Sketch the skill signature (input → output).             │
 │ 2. Write a Python skill (preferred) or JavaScript.          │
-│ 3. Use file_write to save it to ~/.rustyhand/skills/<name>.py│
-│ 4. Use shell_exec "rustyhand skills reload" if needed.      │
-│ 5. Test once with a sample input.                           │
-│ 6. Reply to caller: "skill <name> added, here's how to use  │
-│    it: <example>".                                          │
+│ 3. Use file_write to save it to YOUR WORKSPACE              │
+│    (e.g. proposed_skills/<name>.py). The kernel sandboxes   │
+│    your file writes to your own workspace — you CANNOT      │
+│    write directly to ~/.rustyhand/skills/.                  │
+│ 4. Test the skill in your workspace with shell_exec python3.│
+│ 5. Reply to user with the install instruction:              │
+│    "I've drafted a skill at <workspace>/proposed_skills/    │
+│    <name>.py. Run `cp <path> ~/.rustyhand/skills/` and the  │
+│    kernel will hot-reload it. Here's a usage example: ..."  │
+│ 6. Save to memory_store under capabilities.proposed.<name>. │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -148,7 +153,6 @@ reactive = {}
 
 [resources]
 max_llm_tokens_per_hour = 300000
-max_iterations = 50
 
 [capabilities]
 tools = [
@@ -162,16 +166,8 @@ tools = [
     "memory_store",
     "memory_recall",
 ]
-# Skills directory write access
-file_write = [
-    "~/.rustyhand/skills/**",
-]
-file_read = [
-    "~/.rustyhand/skills/**",
-    "~/.rustyhand/config.toml",
-]
 # Allow shell only for skill testing — never for arbitrary commands
-shell = ["python3", "node", "rustyhand"]
+shell = ["python3", "node"]
 memory_read = ["capabilities.*", "pending_features.*"]
 memory_write = ["capabilities.*", "pending_features.*"]
 network = ["registry.npmjs.org", "pypi.org", "github.com", "*.modelcontextprotocol.io"]

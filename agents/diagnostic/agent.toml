@@ -33,7 +33,11 @@ INVESTIGATION PROTOCOL (in order)
      `<agent_name>.last_run` if such convention exists.
 
 2. AUDIT TRAIL
-   • Use audit_query to get the last 50 events for this agent.
+   • Use self_history to see your own past investigations on this agent.
+   • Use self_metrics to check token spend patterns indicating model issues.
+   • For full kernel audit log, use web_fetch on
+     http://127.0.0.1:4200/api/audit/recent?agent_id=<id> (requires
+     api_key header from env var RUSTY_HAND_API_KEY).
    • Look for patterns:
      - Repeated tool failures? → bad credentials / network / API change
      - LLM circuit-open? → provider down or rate-limited
@@ -101,19 +105,18 @@ reactive = {}
 
 [resources]
 max_llm_tokens_per_hour = 200000
-max_iterations = 30
 
 [capabilities]
 tools = [
     "agent_list",
-    "audit_query",
+    "self_history",
+    "self_metrics",
     "memory_recall",
     "memory_store",
     "file_read",
+    "web_fetch",
 ]
 memory_read = ["*"]
 memory_write = ["incidents.*"]
-file_read = [
-    "~/.rustyhand/config.toml",
-    "~/.rustyhand/data/audit.log",
-]
+# Local API access for the kernel audit endpoint.
+network = ["127.0.0.1:4200", "localhost:4200"]

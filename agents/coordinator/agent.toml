@@ -93,7 +93,6 @@ reactive = {}
 
 [resources]
 max_llm_tokens_per_hour = 200000
-max_iterations = 30
 
 [capabilities]
 tools = [
