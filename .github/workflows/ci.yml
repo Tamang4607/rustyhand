@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Daily re-scan catches advisories published when nothing else triggers CI.
+  # RustSec advisory-db updates faster than Dependabot (RUSTSEC-2026-0104
+  # hit advisory-db the day before Dependabot noticed it).
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC daily
 
 env:
   CARGO_TERM_COLOR: always
