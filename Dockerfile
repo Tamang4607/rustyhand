@@ -15,7 +15,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -r -s /usr/sbin/nologin -d /data rustyhand
+# Pin uid/gid to 1000 so host volumes stay readable across image
+# rebuilds. A bare `useradd -r` assigns a dynamic system uid that
+# drifts between builds, which breaks a mounted /data from a prior
+# image version when the new user cannot write files owned by the
+# old one.
+RUN groupadd -r -g 1000 rustyhand \
+    && useradd -r -u 1000 -g 1000 -s /usr/sbin/nologin -d /data rustyhand
 
 COPY --from=builder /build/target/release/rustyhand /usr/local/bin/
 COPY agents /opt/rustyhand/agents

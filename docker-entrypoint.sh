@@ -8,10 +8,31 @@ if [ ! -w "$DATA_DIR" ]; then
     echo "ERROR: $DATA_DIR is not writable by uid $(id -u) ($(whoami))."
     OWNER_UID=$(stat -c '%u' "$DATA_DIR" 2>/dev/null || stat -f '%u' "$DATA_DIR" 2>/dev/null || echo '?')
     echo "  Directory is owned by uid $OWNER_UID."
-    echo "  Fix: run 'chown $(id -u):$(id -g) $DATA_DIR' on the host,"
+    echo "  Fix: run 'chown -R $(id -u):$(id -g) $DATA_DIR' on the host,"
     echo "  or start the container with '--user $OWNER_UID'."
     exit 1
 fi
+
+# ── 1b. Check existing state files are writable ─────────────────────
+# The directory-level check above misses the case where $DATA_DIR is
+# writable (new files can be created) but existing files inside it
+# are owned by a stale uid. This happens when an image whose uid was
+# dynamic (pre-uid-pinning) is replaced with a newer image (pinned
+# uid 1000) over the same host volume — rustyhand would then crash
+# mid-boot trying to rewrite config.toml, the sqlite DB, or a session
+# blob. Probe a few well-known paths and fail loudly with a fix.
+for _probe in "config.toml" "memory.sqlite" "memory.sqlite-wal" "memory.sqlite-shm"; do
+    _path="$DATA_DIR/$_probe"
+    if [ -e "$_path" ] && [ ! -w "$_path" ]; then
+        _puid=$(stat -c '%u' "$_path" 2>/dev/null || stat -f '%u' "$_path" 2>/dev/null || echo '?')
+        echo "ERROR: $_path exists but is not writable by uid $(id -u) ($(whoami))."
+        echo "  File is owned by uid $_puid — likely uid drift from an older image build."
+        echo "  Fix: run 'chown -R $(id -u):$(id -g) $DATA_DIR' on the host,"
+        echo "  or start the container with '--user $_puid'."
+        exit 1
+    fi
+done
+unset _probe _path _puid
 
 # ── 2. Generate config.toml from environment variables ──────────────
 # If no config.toml exists (or RUSTYHAND_FORCE_ENV_CONFIG=1), generate
