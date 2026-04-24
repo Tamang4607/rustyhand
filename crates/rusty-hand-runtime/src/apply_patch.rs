@@ -342,7 +342,12 @@ pub async fn apply_patch(ops: &[PatchOp], workspace_root: &Path) -> PatchResult 
                         };
 
                         if let Some(parent) = target.parent() {
-                            let _ = tokio::fs::create_dir_all(parent).await;
+                            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                                result
+                                    .errors
+                                    .push(format!("mkdir {}: {}", parent.display(), e));
+                                continue;
+                            }
                         }
 
                         match tokio::fs::write(&target, patched).await {
@@ -350,7 +355,13 @@ pub async fn apply_patch(ops: &[PatchOp], workspace_root: &Path) -> PatchResult 
                                 result.files_updated += 1;
                                 // If moved, delete original
                                 if move_to.is_some() && target != resolved {
-                                    let _ = tokio::fs::remove_file(&resolved).await;
+                                    if let Err(e) = tokio::fs::remove_file(&resolved).await {
+                                        result.errors.push(format!(
+                                            "cleanup-after-move {}: {}",
+                                            resolved.display(),
+                                            e
+                                        ));
+                                    }
                                 }
                             }
                             Err(e) => {

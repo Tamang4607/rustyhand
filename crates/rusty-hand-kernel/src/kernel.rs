@@ -1684,12 +1684,15 @@ impl RustyHandKernel {
                         let estimated = estimate_token_count(&session.messages, None, None);
                         if needs_compaction_by_tokens(estimated, &config) {
                             let kc = kernel_clone.clone();
-                            tokio::spawn(async move {
+                            let handle = tokio::spawn(async move {
                                 info!(agent_id = %agent_id, estimated_tokens = estimated, "Post-loop compaction triggered");
                                 if let Err(e) = kc.compact_agent_session(agent_id).await {
                                     warn!(agent_id = %agent_id, "Post-loop compaction failed: {e}");
                                 }
                             });
+                            // Track for graceful shutdown so we don't leave
+                            // compaction writes half-flushed on kernel stop.
+                            kernel_clone.track_background(handle.abort_handle());
                         }
                     }
 
@@ -2769,6 +2772,13 @@ impl RustyHandKernel {
         self.capabilities.revoke_all(agent_id);
         self.event_bus.unsubscribe_agent(agent_id);
         self.triggers.remove_agent_triggers(agent_id);
+
+        // Abort and clear any streaming/in-flight agent_loop task so a
+        // reused AgentId can't collide with a stale AbortHandle and orphan
+        // the old task running against the new agent.
+        if let Some((_, handle)) = self.running_tasks.remove(&agent_id) {
+            handle.abort();
+        }
 
         // Remove from persistent storage
         if let Err(e) = self.memory.remove_agent(agent_id) {

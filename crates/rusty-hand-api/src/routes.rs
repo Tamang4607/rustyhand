@@ -2947,6 +2947,11 @@ pub async fn prometheus_metrics(State(state): State<Arc<AppState>>) -> impl Into
 pub async fn list_skills(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let skills_dir = state.kernel.config.home_dir.join("skills");
     let mut registry = rusty_hand_skills::registry::SkillRegistry::new(skills_dir);
+    // v0.7.1 regression fix: the dashboard listed 0 skills because we only
+    // called load_all() which reads ~/.rustyhand/skills/ from disk — the
+    // 60 bundled (compile-time embedded) skills were missing entirely.
+    // Match the kernel's own boot sequence: bundled first, then on-disk.
+    registry.load_bundled();
     if let Err(e) = registry.load_all() {
         tracing::warn!(error = %e, "Failed to load skills registry");
     }
@@ -3098,6 +3103,10 @@ pub async fn uninstall_skill(
 ) -> impl IntoResponse {
     let skills_dir = state.kernel.config.home_dir.join("skills");
     let mut registry = rusty_hand_skills::registry::SkillRegistry::new(skills_dir);
+    // Load bundled too so `remove()` can surface a clear "cannot remove
+    // bundled skill" error when the user tries to uninstall a compile-time
+    // embedded skill they see in the dashboard list.
+    registry.load_bundled();
     if let Err(e) = registry.load_all() {
         tracing::warn!(error = %e, "Failed to load skills registry");
     }

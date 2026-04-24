@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/ginkida/rustyhand"
@@ -109,6 +109,10 @@ regex-lite = "0.1"
 
 # ZIP extraction
 zip = "2"
+
+# tar.gz extraction (FangHub marketplace skill installs)
+flate2 = "1"
+tar = "0.4"
 
 # Testing
 tokio-test = "0.4"

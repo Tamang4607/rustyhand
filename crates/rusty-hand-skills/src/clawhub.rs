@@ -579,13 +579,25 @@ impl ClawHubClient {
 
 /// Extract a ZIP archive from in-memory bytes into `target_dir`.
 ///
-/// Security: uses `enclosed_name()` to prevent path-traversal attacks.
-/// Skips macOS resource-fork junk (`__MACOSX/`, `.DS_Store`).
-/// Sets the executable bit on `.py`/`.sh`/`.js` files on Unix.
+/// Security:
+/// - `enclosed_name()` blocks path-traversal attacks.
+/// - Hard caps on per-file and total uncompressed size defeat zip-bomb
+///   attacks (malicious skill packages with extreme compression ratios).
+/// - Skips macOS resource-fork junk (`__MACOSX/`, `.DS_Store`).
+/// - Sets the executable bit on `.py`/`.sh`/`.js` files on Unix.
 fn extract_zip(data: &[u8], target_dir: &Path) -> Result<(), SkillError> {
+    // Any single file larger than this is rejected. Real skills are code,
+    // not media — 32 MiB is extremely generous.
+    const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
+    // Total uncompressed payload cap. 128 MiB is well above any legitimate
+    // skill and safely below "exhaust a small VM's disk" territory.
+    const MAX_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+
     let reader = Cursor::new(data);
     let mut archive = zip::ZipArchive::new(reader)
         .map_err(|e| SkillError::InvalidManifest(format!("Invalid ZIP archive: {e}")))?;
+
+    let mut total_written: u64 = 0;
 
     for i in 0..archive.len() {
         let mut entry = archive
@@ -609,11 +621,38 @@ fn extract_zip(data: &[u8], target_dir: &Path) -> Result<(), SkillError> {
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;
         } else {
+            // Zip-bomb guard: reject entries whose declared uncompressed
+            // size exceeds our per-file cap before we even start writing.
+            let declared = entry.size();
+            if declared > MAX_FILE_BYTES {
+                return Err(SkillError::InvalidManifest(format!(
+                    "Skill entry '{}' declares {} bytes, exceeds per-file cap {}",
+                    name_str, declared, MAX_FILE_BYTES
+                )));
+            }
+            if total_written.saturating_add(declared) > MAX_TOTAL_BYTES {
+                return Err(SkillError::InvalidManifest(format!(
+                    "Skill archive exceeds total-size cap {} (entry '{}' would push over)",
+                    MAX_TOTAL_BYTES, name_str
+                )));
+            }
+
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             let mut outfile = std::fs::File::create(&out_path)?;
-            std::io::copy(&mut entry, &mut outfile)?;
+            // Read up to cap+1 so we can distinguish a legitimate file of
+            // exactly MAX_FILE_BYTES (pass) from an under-declared liar that
+            // would overflow the cap (reject).
+            let limited = std::io::Read::take(&mut entry, MAX_FILE_BYTES + 1);
+            let written = std::io::copy(&mut { limited }, &mut outfile)?;
+            if written > MAX_FILE_BYTES {
+                return Err(SkillError::InvalidManifest(format!(
+                    "Skill entry '{}' exceeded per-file cap {}",
+                    name_str, MAX_FILE_BYTES
+                )));
+            }
+            total_written = total_written.saturating_add(written);
 
             // Set executable bit on script files (Unix only)
             #[cfg(unix)]

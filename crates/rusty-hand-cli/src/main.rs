@@ -3302,21 +3302,35 @@ fn cmd_skill_list() {
     let skills_dir = home.join("skills");
 
     let mut registry = rusty_hand_skills::registry::SkillRegistry::new(skills_dir);
+    // Same regression as /api/skills in v0.7.1: without load_bundled() the
+    // user saw "No skills installed" despite 60 compile-time embedded skills.
+    let bundled = registry.load_bundled();
     match registry.load_all() {
-        Ok(0) => println!("No skills installed."),
-        Ok(count) => {
-            println!("{count} skill(s) installed:\n");
+        Ok(installed) => {
+            let total = bundled + installed;
+            if total == 0 {
+                println!("No skills installed.");
+                return;
+            }
+            println!("{total} skill(s) available ({bundled} bundled, {installed} installed):\n");
             println!(
-                "{:<20} {:<10} {:<8} DESCRIPTION",
-                "NAME", "VERSION", "TOOLS"
+                "{:<24} {:<10} {:<8} {:<10} DESCRIPTION",
+                "NAME", "VERSION", "TOOLS", "SOURCE"
             );
-            println!("{}", "-".repeat(70));
+            println!("{}", "-".repeat(80));
             for skill in registry.list() {
+                let source = match &skill.manifest.source {
+                    Some(rusty_hand_skills::SkillSource::Bundled) => "bundled",
+                    Some(rusty_hand_skills::SkillSource::ClawHub { .. }) => "clawhub",
+                    Some(rusty_hand_skills::SkillSource::OpenClaw) => "openclaw",
+                    Some(rusty_hand_skills::SkillSource::Native) | None => "local",
+                };
                 println!(
-                    "{:<20} {:<10} {:<8} {}",
+                    "{:<24} {:<10} {:<8} {:<10} {}",
                     skill.manifest.skill.name,
                     skill.manifest.skill.version,
                     skill.manifest.tools.provided.len(),
+                    source,
                     skill.manifest.skill.description,
                 );
             }
@@ -3333,6 +3347,10 @@ fn cmd_skill_remove(name: &str) {
     let skills_dir = home.join("skills");
 
     let mut registry = rusty_hand_skills::registry::SkillRegistry::new(skills_dir);
+    // Load bundled so `remove()` can give a clear error for bundled skills
+    // instead of a confusing "not found" when the skill is clearly visible
+    // in `skill list` output.
+    registry.load_bundled();
     let _ = registry.load_all();
     match registry.remove(name) {
         Ok(()) => println!("Removed skill: {name}"),

@@ -213,6 +213,25 @@ impl SkillRegistry {
         let toml_str = std::fs::read_to_string(&manifest_path)?;
         let manifest: SkillManifest = toml::from_str(&toml_str)?;
 
+        // Validate the declared entry file exists at load time for
+        // runtimes that execute a concrete script — otherwise the error
+        // only surfaces on first invocation, long after registration.
+        // PromptOnly / Builtin skills have no entry file to check.
+        match manifest.runtime.runtime_type {
+            crate::SkillRuntime::Python | crate::SkillRuntime::Node | crate::SkillRuntime::Wasm => {
+                let entry_path = skill_dir.join(&manifest.runtime.entry);
+                if !entry_path.exists() {
+                    return Err(SkillError::InvalidManifest(format!(
+                        "Skill '{}' declares entry '{}' but {} does not exist",
+                        manifest.skill.name,
+                        manifest.runtime.entry,
+                        entry_path.display()
+                    )));
+                }
+            }
+            crate::SkillRuntime::PromptOnly | crate::SkillRuntime::Builtin => {}
+        }
+
         let name = manifest.skill.name.clone();
 
         self.skills.insert(
@@ -239,7 +258,23 @@ impl SkillRegistry {
     }
 
     /// Remove a skill by name.
+    ///
+    /// Refuses to remove compile-time embedded ("bundled") skills — they
+    /// have no on-disk directory to delete and removing them from the
+    /// in-memory registry has no effect at the next boot anyway. Callers
+    /// get a clear error instead of a misleading "file not found" from fs.
     pub fn remove(&mut self, name: &str) -> Result<(), SkillError> {
+        // Peek first — don't remove from the map until we know we can actually
+        // delete. Otherwise a failed remove would corrupt registry state.
+        let bundled_marker = Path::new("<bundled>");
+        if let Some(skill) = self.skills.get(name) {
+            if skill.path == bundled_marker {
+                return Err(SkillError::InvalidManifest(format!(
+                    "Cannot remove bundled skill '{name}' — it is compiled into the binary"
+                )));
+            }
+        }
+
         let skill = self
             .skills
             .remove(name)
@@ -421,6 +456,45 @@ input_schema = {{ type = "object" }}
             ),
         )
         .unwrap();
+        // Create the entry file so load_skill's entry-existence check passes.
+        std::fs::write(skill_dir.join("main.py"), "def run(inp):\n    return inp\n").unwrap();
+    }
+
+    #[test]
+    fn test_load_skill_rejects_missing_entry_file() {
+        // Regression: Python/Node/Wasm skills must validate that the
+        // declared entry file exists at load time. Previously the error
+        // only surfaced on first tool invocation — a listed-but-broken
+        // skill looked installed until you tried to call it.
+        let dir = TempDir::new().unwrap();
+        let skill_dir = dir.path().join("broken");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("skill.toml"),
+            r#"
+[skill]
+name = "broken"
+version = "0.1.0"
+description = "Missing entry file"
+
+[runtime]
+type = "python"
+entry = "does_not_exist.py"
+
+[[tools.provided]]
+name = "broken_tool"
+description = "n/a"
+input_schema = { type = "object" }
+"#,
+        )
+        .unwrap();
+
+        let mut registry = SkillRegistry::new(dir.path().to_path_buf());
+        let err = registry
+            .load_skill(&skill_dir)
+            .expect_err("load must reject skill with missing entry file");
+        assert!(format!("{err}").contains("does not exist"));
+        assert!(registry.get("broken").is_none());
     }
 
     #[test]
@@ -484,6 +558,29 @@ input_schema = {{ type = "object" }}
 
         registry.remove("removable").unwrap();
         assert_eq!(registry.count(), 0);
+    }
+
+    #[test]
+    fn test_remove_refuses_bundled_skill() {
+        // Regression: earlier behavior either silently "removed" the in-memory
+        // bundled entry (with no fs effect) or returned a confusing "file not
+        // found" from fs. Now it returns a clear InvalidManifest error and
+        // leaves the registry state intact.
+        let dir = TempDir::new().unwrap();
+        let mut registry = SkillRegistry::new(dir.path().to_path_buf());
+        let count = registry.load_bundled();
+        assert!(count > 0, "this test assumes at least one bundled skill");
+        let bundled_name = registry.list()[0].manifest.skill.name.clone();
+        let before = registry.count();
+        let err = registry
+            .remove(&bundled_name)
+            .expect_err("removing a bundled skill must error");
+        assert!(format!("{err}").contains("bundled"));
+        assert_eq!(
+            registry.count(),
+            before,
+            "state must be unchanged on refusal"
+        );
     }
 
     #[test]

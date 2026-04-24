@@ -947,16 +947,12 @@ async fn dispatch_message(
         // progressively edit the Telegram message as chunks arrive.
         let user_for_stream = message.sender.clone();
         let adapter_for_stream = Arc::clone(adapter_arc);
+        let adapter_name = adapter.name().to_string();
         let stream_task = tokio::spawn(async move {
-            if let Err(e) = adapter_for_stream
+            adapter_for_stream
                 .send_streaming(&user_for_stream, chunk_rx)
                 .await
-            {
-                warn!(
-                    "Streaming send to {} failed: {e}",
-                    adapter_for_stream.name()
-                );
-            }
+                .map_err(|e| e.to_string())
         });
 
         // Drive the agent loop; chunks are piped to chunk_tx in real-time
@@ -966,10 +962,28 @@ async fn dispatch_message(
             .send_message_to_stream(agent_id, &text, chunk_tx)
             .await;
 
-        // Wait for adapter to finish editing the last message
-        let _ = stream_task.await;
-
-        response
+        // Wait for adapter to finish editing the last message. Promote a
+        // streaming-side adapter failure into the response error so we do
+        // NOT later record the message as successfully delivered.
+        match stream_task.await {
+            Ok(Ok(())) => response,
+            Ok(Err(e)) => {
+                warn!("Streaming send to {adapter_name} failed: {e}");
+                match response {
+                    Ok(_) => Err(format!("Streaming send to {adapter_name} failed: {e}")),
+                    Err(original) => Err(original),
+                }
+            }
+            Err(join_err) => {
+                warn!("Streaming task for {adapter_name} panicked: {join_err}");
+                match response {
+                    Ok(_) => Err(format!(
+                        "Streaming task for {adapter_name} panicked: {join_err}"
+                    )),
+                    Err(original) => Err(original),
+                }
+            }
+        }
     } else {
         handle.send_message(agent_id, &text).await
     };
